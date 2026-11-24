@@ -98,11 +98,30 @@ after offline edits can otherwise overwrite those edits.
 
 ## Checks and scope
 
-The GTK test directly instantiates the changed widgets' actual templates and models. It
-measures 360 and 366 pixel portrait widths, 651 pixel landscape width, a reduced
-300 pixel height for keyboard occlusion, and a 1024 pixel desktop width. It
-calibrates the window request against the allocated content size, accounting for
-window decorations, then keeps exact viewport and control-boundary assertions.
+The GTK test activates the actual application, constructs its main window and
+checks the welcome page at 366 × 651, 651 × 366, 366 × 300, 360 × 651 and
+1024 × 768 content viewports. It reads the installed image sort default and
+asserts `id` before activation. This is the two-line schema correction explicitly
+approved by the user; the test neither overwrites settings nor substitutes a
+test schema. Each process uses a fresh temporary application configuration and
+`GSETTINGS_BACKEND=memory`.
+
+The test then constructs the existing `ClientView` with a real, isolated Docker
+client model. A temporary Unix listener satisfies the SDK's local transport
+check without running a daemon. The existing sidebar signal selects Images,
+and the existing `navigation.pop` action returns to the sidebar at narrow widths.
+The split-view state, selected page, mapped Images panel and return path are
+checked at portrait, landscape, reduced-height and desktop sizes. The existing
+`min-width: 668sp` breakpoint is converted using GTK's actual settings and tested
+immediately below and at its inclusive boundary. In the recorded environment,
+these widths are 667 and 668 pixels. Images remain in their loading state in this
+isolated model; this check covers navigation rather than populated daemon data.
+
+The changed widgets are also instantiated from their actual templates and
+models. Their checks use 360 and 366 pixel portrait widths, 651 pixel landscape
+width, a reduced 300 pixel height for keyboard occlusion, and a 1024 pixel desktop
+width. Window requests are calibrated against allocated content size, accounting
+for window decorations, before exact viewport and control-boundary assertions.
 
 The checks cover compact search options and translated match counts, terminal
 toolbar breakpoints, 44-pixel pointer targets, the five fixed auxiliary-key byte
@@ -113,12 +132,10 @@ screenshots preserve the beginning and end of each popover. Paste continues to c
 existing terminal paste function; its connected-terminal and software-keyboard
 behavior remains a device acceptance item.
 
-The test registers an application context for GTK widgets but does not activate
-the complete application or construct its unchanged main window and client
-panels. It uses the unchanged application schema and does not replace the image
-sort setting. Full-application startup validation remains blocked pending the
-user's explicit approval for the separate schema fix recorded in
-[Upstream issues](upstream-issues.md).
+Two existing warnings observed during main-window and navigation checks are
+recorded separately in [Upstream issues](upstream-issues.md): an empty saved-view
+default and the split view's minimum size at the exact 668-pixel boundary. The
+approved schema correction and tests do not change either behavior.
 
 Xvfb supplies the X11 run. For Wayland, Weston runs its X11 backend inside a
 separate Xvfb display, with the Pixman software renderer. The application uses
@@ -142,38 +159,55 @@ scaling, touchscreen and actual software keyboard.
 
 ARM64 full-system TCG booted the official Alpine kernel and root filesystem. A
 guest `syslogd` bound `/dev/log`, and `logger` successfully sent a Unix socket
-message. Mobile widget results must be recorded separately for the architecture,
-GTK backend, locale and exact source revision actually tested. Archived runs
-from broader earlier candidates are retained as experiments and are not gates
-for this scoped mobile change.
+message. Application results are recorded separately for the architecture, GTK
+backend, locale and exact source revision actually tested. The x86_64 result
+below includes real application activation, welcome-page rendering and existing
+navigation. ARM64 application execution uses a separate guest with matching
+native APKs and test artifacts. Archived runs from broader earlier candidates
+are retained as experiments and are not gates for this mobile change.
 
-## Scoped x86_64 run
+## Source C x86_64 run
 
-The scoped source revision `f427564e41347ae8bbe4a3a7f8e01eccadc18aa0` was
-tested with the unchanged upstream schema default
-`images.sort-attribute='name'`. The executable was built with
+Source revision `20ed3a2f6ced56710d8c3588c238b61e66d90f99` was tested on
+2026-11-24 with the installed schema default `images.sort-attribute='id'`.
+The executable was built with
 `cargo test --offline --locked --bin pods --no-run --target-dir _build/src`.
 Its SHA-256 is:
 
 ```text
-0b9315882c3c747f5a2d2ac50c58600aca225637f5840b8ef1e37fdb42e80ec5
+7bf8bc18fc560e02fb7822232b59628a52ac52239db098ed0af74d145727d492
 ```
 
 The test runs as guest UID 1000 with `G_DEBUG=fatal-criticals`. It uses GTK
-4.22.4, libadwaita 1.9.2 and VTE 0.84.0 on Alpine 3.24.4. Screenshot directories
-for this scoped run start with `/out/mobile-ui-`; earlier `/out/ui-` directories
-belong to archived experiments.
+4.22.4, libadwaita 1.9.2 and VTE 0.84.0 on Alpine 3.24.4. Source C results were
+exported to `build-env/qemu-x86/startup-verification/` outside the Git checkout.
+That directory contains `boot.log`, the three test logs and screenshot
+directories, and `SHA256SUMS` for the executable, UI resources, CSS resources and
+compiled schema. Source A exports remain in the separate `scoped-verification/`
+directory.
 
-| GTK backend | Locale | Result | Guest evidence |
-| --- | --- | --- | --- |
-| X11 / Xvfb | `C.UTF-8` | Passed; 27 screenshots | `/out/mobile-ui-C.UTF-8.log` and matching directory |
-| X11 / Xvfb | `zh_CN.UTF-8`, `LANGUAGE` unset | Passed; 27 screenshots | `/out/mobile-ui-zh_CN.UTF-8.log` and matching directory |
-| Wayland / nested Weston with virtual keyboard and pointer | `C.UTF-8` | Passed; 27 screenshots | `/out/mobile-ui-wayland.log` and matching directory |
+| GTK backend | Locale | Result | Test duration | Guest evidence |
+| --- | --- | --- | --- | --- |
+| X11 / Xvfb | `C.UTF-8` | Passed; 38 screenshots | 38.64 s | `/out/mobile-ui-C.UTF-8.log` and matching directory |
+| X11 / Xvfb | `zh_CN.UTF-8`, `LANGUAGE` unset | Passed; 38 screenshots | 35.20 s | `/out/mobile-ui-zh_CN.UTF-8.log` and matching directory |
+| Wayland / nested Weston with virtual keyboard and pointer | `C.UTF-8` | Passed; 38 screenshots | 35.01 s | `/out/mobile-ui-wayland.log` and matching directory |
 
 All three runs used the same executable and resource files. The guest reported
 `QEMU_UI_TEST_EXIT=0`, remounted its filesystem read-only and powered off without
-filesystem I/O errors. The exported 81 PNG files were decoded successfully and
-representative portrait, reduced-height, desktop and popup images were inspected.
+filesystem I/O errors. The exported 114 PNG files were decoded successfully.
+Each group contains five actual main-window startup images, six navigation
+images and the existing 27 affected-widget images. Representative portrait,
+reduced-height, desktop and popup images were inspected. The Chinese process
+passes its gettext assertion; untranslated upstream welcome strings remain in
+English in that locale.
+
+The installed compiled schema has SHA-256
+`0c771b769e335594a51cd4abb45bfecfc01ef5f8d5db351e53a1fb80bd41d6f9`.
+Both log markers, `Application activation and main-window startup passed with
+the installed schema` and `Existing sidebar activation and navigation back
+passed at 668px breakpoint`, appear in every group. The 668-pixel boundary also
+produces the existing minimum-width warning recorded in the issue list; the
+test does not assert that every child inside that boundary layout fits.
 
 The terminal toolbar's minimum width is 338 pixels after the padding adjustment
 limited to its new buttons. All six targets remain at least 44 by 44 pixels at
@@ -197,7 +231,66 @@ Wayland native surfaces measure 368 × 296 and 336 × 296 respectively; their
 transparent margins are retained in the screenshots and excluded from the
 content-clipping assertion. Each help text was scrolled to its end and captured.
 
-This record verifies the affected widgets under x86_64 emulation. ARM64 widget
-execution using the APK and harness from the same source revision is a separate
-pending result. Full application startup and Pixel 2 device acceptance remain
-as described above.
+This record verifies application startup, existing navigation and the affected
+widgets under x86_64 emulation. The matching ARM64 APK run is recorded below.
+Pixel 2 device acceptance remains as described above.
+
+## Source C ARM64 run
+
+The native aarch64 APKs and all three harnesses came from source C's
+[successful native build](https://github.com/Mr-Metatron/pods/actions/runs/45345743799),
+artifact `14899187208`. The full-system guest installed the signed
+`3.3.0_git20261124-r1` packages with their matching public key, ran the schema and
+icon triggers, and read the installed image sort default as `id`. Its Linux
+6.18.60-0-virt kernel reported a 4096-byte page size. Tests ran as UID 1000.
+
+| Guest check | Result | Duration |
+| --- | --- | --- |
+| Socket and transfer contract, including actual permission denial | 12 passed | 0.47 s |
+| Isolated Docker 29.9.3 read-only smoke | 1 passed; no containers, images or volumes | 0.29 s |
+| X11 English startup, navigation and widgets | 1 passed; 38 screenshots | 37.70 s |
+| X11 Chinese startup, navigation and widgets | 1 passed; 38 screenshots | 34.16 s |
+| Native Wayland startup, navigation and widgets | 1 passed; 38 screenshots | 33.14 s |
+
+The matching ARM64 UI harness has SHA-256
+`b4f8a9ed5fd7b00a2b6b8259e374ad704365b13817a480864da6d0836aaefd36`.
+The complete guest returned `QEMU_ARM64_SOURCE_C_GUEST_EXIT=0`, remounted its
+filesystem read-only and powered off. Evidence is under
+`build-env/qemu-arm64/candidate-C-evidence/`. The first attempt had already
+installed the APKs but its scratch version assertion misread `apk info -v`
+descriptions as a version. That attempt remains separately archived; correcting
+the fixture and rerunning a clean disk required no product, APK or repository
+test changes.
+
+A separate X11 capture started the installed production `/usr/bin/pods` with an
+isolated configuration and a valid saved connection to the same Docker daemon.
+It only set the existing last-used connection UUID; the installed image sort
+default remained `id` before and after the run. Desktop and portrait screenshots
+were inspected: both show the loaded `No Containers Available` state, with the
+desktop also showing `QEMU local Docker` and Docker `v29.9.3`. The existing quit
+action returned exit zero, and all three Docker inventories remained empty.
+
+The production window measured 1024 × 768 on the desktop. A request for
+366 × 651 produced an actual X11 outer window of 370 × 651; captions retain that
+measured size. Exact 360/366 content viewports are covered separately by the
+GTK harness. This production capture uses X11; the Wayland result above uses
+the native Wayland harness. It does not exercise a physical keyboard, touch,
+GPU or any Docker write operation.
+
+The installed production binary has SHA-256
+`44105efa4230c92b2be42a19600766252314f81d7f9d76e5a2f696cbd0560af7`, matching the
+binary extracted from the signed APK. Production PNGs, geometry, logs and
+before/after inventories are under
+`candidate-C-evidence/out/production-C/run.PdnhBL/`.
+
+## Earlier source A record
+
+Source A, `f427564e41347ae8bbe4a3a7f8e01eccadc18aa0`, was tested with the original
+schema default `images.sort-attribute='name'`. At that stage the test only
+instantiated affected widgets and did not activate the complete application.
+Its executable SHA-256 was
+`0b9315882c3c747f5a2d2ac50c58600aca225637f5840b8ef1e37fdb42e80ec5`.
+The X11 English, X11 Chinese and Wayland English runs passed with 27 screenshots
+each, in 23.36, 21.43 and 21.43 seconds respectively. Those 81 images and their
+logs remain under `build-env/qemu-x86/scoped-verification/`; they are kept
+separate from source C's startup and navigation results.

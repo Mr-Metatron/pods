@@ -47,9 +47,24 @@ rootless 服务可把环境变量设为 `unix://$XDG_RUNTIME_DIR/docker.sock`。
 
 Alpine 的现有进程列表功能还需要宿主 `procps-ng` 的 `ps`，原生 APK 已声明该依赖。这个只读连接测试不调用进程列表；安装与完整应用功能验收按设备验收表记录。
 
-## 当前范围的客体实测
+## 源 C 的最终结果
 
-2026-11-24，在范围收拢后的工作树上编译两个测试目标，使用完整系统 QEMU x86_64、Alpine 3.24、内核 6.18.60-0-virt，以 UID/GID 1000 的 tester 运行：
+最终产品源码为 `20ed3a2f6ced56710d8c3588c238b61e66d90f99`，原生包版本 `3.3.0_git20261124-r1`。[Native Alpine CI](https://github.com/Mr-Metatron/pods/actions/runs/45345743799) 的原生 x86_64 与 aarch64 构建、安装和普通用户契约测试全部通过，每架构 12 passed。x86_64 的真实 Docker 28.0.4 只读 smoke 通过，读取到 1 个容器、7 个镜像、0 个卷；没有修改这些资源。
+
+同一 aarch64 制品随后在独立 ARM64 完整系统 QEMU 中安装和运行，客体使用 Linux 6.18.60-0-virt、4096 字节页。UID 1000 的契约测试为 12 passed（0.47 秒），包括实际权限拒绝；真实隔离 Docker 29.9.3 的只读 smoke 为 1 passed（0.29 秒），读取到三类资源均为零。两个 harness 的 SHA-256 为：
+
+```text
+engine_contract 43e16bab5773a9fb191be3a16396847b40eefbefe6b1e67e19af39f28c2ec071
+engine_live     2be6401bb562c42768d5ce77a48648db6ade7c945b7bd0f1fa57852cf20aa808
+```
+
+正式安装的 `/usr/bin/pods` 还在该客体中以 UID 1000 启动，加载预先保存的合法本地测试连接，显示 Docker v29.9.3 与实际空容器列表。桌面与竖屏截图已人工复核，原 app.quit 正常退出，运行前后容器、镜像、卷清单仍为空。此项使用 X11 / Xvfb；Wayland 的独立控件和导航验证见 [QEMU 记录](testing-qemu.md)。未执行容器生命周期、镜像拉取或 Registry 写操作。
+
+原生证据位于工作区 `build-env/native-scoped-C-arm/` 与 `build-env/native-scoped-C-x86/`；ARM64 客体的串口、独立日志、正式程序截图与哈希位于 `build-env/qemu-arm64/candidate-C-evidence/`。客体所有阶段退出码为零并正常关机。首轮 scratch 包版本查询断言的误判与修正记录见[总报告](verification.md)，没有修改产品来通过检查。
+
+## 源 A 的客体记录
+
+2026-11-24，源 A `f427564e41347ae8bbe4a3a7f8e01eccadc18aa0` 的两个测试目标在完整系统 QEMU x86_64、Alpine 3.24、内核 6.18.60-0-virt 中，以 UID/GID 1000 的 tester 运行：
 
 | 本轮检查 | 结果 |
 | --- | --- |
@@ -57,7 +72,11 @@ Alpine 的现有进程列表功能还需要宿主 `procps-ng` 的 `ps`，原生 
 | 实际 Unix socket 权限拒绝 | 通过，包含在上行；普通用户连接权限为零的自建 socket 得到 PermissionDenied |
 | `docker_local_connection_smoke --exact --ignored` | 1 passed；真实 Docker 29.9.3；读取到 0 个容器、0 个镜像、0 个卷 |
 
-完整串口记录为工作区 `build-env/qemu-x86/scoped-docker-boot.log`，独立结果文件位于 `build-env/qemu-x86/scoped-docker-results/scoped-docker/`。两个测试退出码均为零；客体正常同步、只读重新挂载并关机。这批是当前范围的后端验证，ARM64 应用和 Pixel 2 实机结果仍待补充。
+完整串口记录为工作区 `build-env/qemu-x86/scoped-docker-boot.log`，独立结果文件位于 `build-env/qemu-x86/scoped-docker-results/scoped-docker/`。两个测试退出码均为零；客体正常同步、只读重新挂载并关机。二进制 SHA-256 分别为 `e769d0aa3cb756fb486244814109cd41d4c0468ffca56b38799d29d73fb55260`（engine_contract）和 `e3df4b904f7af7e3c2655e34f4f0e0e88847d13e22eaf5d2bd7d51ed05799fa1`（engine_live）。
+
+源 A 的原生 aarch64 测试制品也在独立 ARM64 完整系统 QEMU 中通过相同的 12 项契约与 Docker 29.9.3 只读 smoke。记录在 `build-env/qemu-arm64/preflight-A-evidence/`；该轮只用于检查 ARM64 内核、普通用户权限和 daemon 环境，没有安装 A 的 APK 或测试完整 GUI。
+
+A 至 C 的 `src/engine`、`src/model` 和 `src/rt.rs` 没有差异；最终交付使用 C 的匹配原生制品重新验证，结果列于上节与[总报告](verification.md)。Pixel 2 实机结果单独记录。
 
 ## 结果记录
 

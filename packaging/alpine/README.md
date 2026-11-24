@@ -113,9 +113,8 @@ ordinary user whose supplemental socket group exists only inside the test
 container. Docker version and test output are saved separately. These checks
 complement the Pixel 2 Wayland and touch acceptance below.
 
-After approval and resolution of the startup blocker above, open **Pods** from
-the application drawer as the ordinary desktop user. The package includes the
-icon theme and desktop schemas used by the existing UI.
+Open **Pods** from the application drawer as the ordinary desktop user. The
+package includes the icon theme and desktop schemas used by the existing UI.
 It does not enable or install a container daemon, alter socket permissions, or
 change user groups. The `openssh-client-default` dependency preserves SSH remote
 connections; TLS uses the system CA certificates.

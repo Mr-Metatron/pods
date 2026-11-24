@@ -10,7 +10,7 @@
 
 ```sh
 uname -a
-apk info -v pods pods-lang gtk4.0 libadwaita vte3-gtk4 procps-ng
+apk --no-network list --installed pods pods-lang gtk4.0 libadwaita vte3-gtk4 procps-ng
 id
 printf '%s\n' "$XDG_SESSION_TYPE" "$WAYLAND_DISPLAY" "$LANG"
 docker version

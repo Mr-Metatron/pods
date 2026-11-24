@@ -1,7 +1,7 @@
 # Candidate recipe pinned to a fixed source commit.
 pkgname=pods
 pkgver=3.3.0_git20261124
-pkgrel=0
+pkgrel=1
 pkgdesc="Manage Podman and Docker containers"
 url="https://github.com/marhkb/pods"
 arch="aarch64 x86_64"
@@ -28,8 +28,8 @@ checkdepends="appstream-glib"
 subpackages="$pkgname-lang"
 # Dependencies are fetched during prepare(); build and check are offline.
 options="net"
-_commit=f427564e41347ae8bbe4a3a7f8e01eccadc18aa0
-source="pods-f427564e41347ae8bbe4a3a7f8e01eccadc18aa0.tar.gz::https://github.com/Mr-Metatron/pods/archive/f427564e41347ae8bbe4a3a7f8e01eccadc18aa0.tar.gz"
+_commit=20ed3a2f6ced56710d8c3588c238b61e66d90f99
+source="pods-20ed3a2f6ced56710d8c3588c238b61e66d90f99.tar.gz::https://github.com/Mr-Metatron/pods/archive/20ed3a2f6ced56710d8c3588c238b61e66d90f99.tar.gz"
 builddir="$srcdir/$pkgname-$_commit"
 
 # Match the Cargo home selected by upstream's Meson build target.
@@ -70,5 +70,5 @@ package() {
 }
 
 sha512sums="
-4987f48784c2489c2a9ca276c152114e96c540af621bea520761407df646536f9c6ae5b1149af6b16ae1499a1c54c8c43c422ee19a8a9f4a7e3d9eb16b37aedb  pods-f427564e41347ae8bbe4a3a7f8e01eccadc18aa0.tar.gz
+88a571a743f5353ee4e56c23e6738099b2dfa3682b114a3b2c34fc5d9781953c06a7d96556e52b20a8e427fb6fdc1b7497af3d6341f8a870d71b723505fbd181  pods-20ed3a2f6ced56710d8c3588c238b61e66d90f99.tar.gz
 "

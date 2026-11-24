@@ -18,7 +18,7 @@
 | M-NATIVE | `packaging/alpine`、`build-aux/prepare-alpine.py`、`src/meson.build`、README | 原生 APK、固定提交与源码校验、目标平台依赖、离线构建；Meson 只增加 `--locked` |
 | M-LOCALE | `po/zh_Hans.po`、APKBUILD | 只翻译本轮新增字符串；APK 将已有 catalog 映射到 zh_CN |
 | M-STARTUP | `data/com.github.marhkb.Pods.gschema.xml.in` | 用户于2026-11-24单独批准：只把 images.sort-attribute 的 choice/default 从 name 改为 id，共两行 |
-| M-VERIFY | native workflow、`ci-alpine.sh`、`ui_tests.rs`、`main.rs`、两个 engine harness、QEMU helpers | 只验证适配控件、权限、传输和原生安装；`main.rs` 只增加测试模块声明 |
+| M-VERIFY、M-STARTUP | native workflow、`ci-alpine.sh`、`ui_tests.rs`、`main.rs`、两个 engine harness、QEMU helpers | 验证适配控件、权限、传输和原生安装，以及批准修复后的完整启动和既有导航；`main.rs` 只增加测试模块声明 |
 
 `Cargo.toml` 的新增直接依赖为已经存在于上游锁文件的 Hyper 0.14 和 tempfile，分别用于保持 Podman 的流上传类型和匿名临时文件。Tokio 的 net、tokio-util 的 io feature 服务于上述 socket 和文件传输。锁文件中 335 个包的名称、版本、来源和 checksum 与基线相同。
 

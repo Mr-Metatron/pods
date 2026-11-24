@@ -2,11 +2,11 @@
 
 基线为 [Pods 349be73c8bc2a3340e2b6187df1c0c676b63be82](https://github.com/marhkb/pods/tree/349be73c8bc2a3340e2b6187df1c0c676b63be82)。以下问题在移动适配审查中发现。本轮保留上游业务行为；此前试做的通用修复及对应验收断言已撤回。下述完整启动阻塞已于2026-11-24获得用户对两行最小补丁的明确批准；其余条目只记录问题，不扩大开发范围。
 
-证据分为源码确认、受控接口/组件验证、真实 Docker 客体验证。真实客体使用 x86_64 Alpine 3.24、Docker 29.9.3；Pixel 2 的 Docker 29.9.2 和完整手机会话尚未完成验收。此前含临时修复的测试结果标为历史候选，当前补丁的结果另见[Docker 验证](testing-docker.md)。
+证据分为源码确认、受控接口/组件验证、真实 Docker 客体验证。下文早期业务问题的真实客体复现使用 x86_64 Alpine 3.24、Docker 29.9.3；最终适配补丁还完成了 ARM64 客体验证，具体范围见[Docker 验证](testing-docker.md)。Pixel 2 的 Docker 29.9.2 和完整手机会话尚未完成验收。此前含临时修复的测试结果单独标为历史候选。
 
 ## 完整启动阻塞：镜像排序默认值与枚举不一致
 
-**状态：用户于2026-11-24明确批准，已仅应用两行补丁；完整启动验证进行中。** 原问题阻止完整 Window/ClientView 初始化，直接影响手机端到端 UI 验收。授权记录见设计中的 M-STARTUP。
+**状态：用户于2026-11-24明确批准，已仅应用两行补丁；源 C 的 x86_64 和 ARM64 QEMU 实际应用启动与既有导航在 X11 英文、X11 中文和 Wayland 英文三组均通过，两架构原生 APK 构建与安装也通过。** 原问题阻止完整 Window/ClientView 初始化，直接影响手机端到端 UI 验收。授权记录见设计中的 M-STARTUP；具体范围与证据见 [QEMU 验证](testing-qemu.md)。
 
 [上游 schema](https://github.com/marhkb/pods/blob/349be73c8bc2a3340e2b6187df1c0c676b63be82/data/com.github.marhkb.Pods.gschema.xml.in#L151-L161) 的 `images.sort-attribute` choices/default 使用 `name`，而 [ImagesPanel::SortAttribute](https://github.com/marhkb/pods/blob/349be73c8bc2a3340e2b6187df1c0c676b63be82/src/view/images_panel.rs#L68-L78) 的枚举 nick 为 `id`、`tag`、`containers`。默认 GSettings 绑定因此被 GType 拒绝。
 
@@ -28,7 +28,7 @@ GLib-GIO-ERROR **: 05:29:15.348: The schema default value for key 'sort-attribut
 +      <default>'id'</default>
 ```
 
-其他 schema 的 `name` 保持原值。独立 keyfile 实验在旧设置含 `name` 的情况下读到旧 schema 为 `'name'`、候选 schema 为 `'id'`，记录位于 `build-env/schema-migration/result.log`；因此候选不附加迁移代码。用户已明确授权应用这两行，完整启动与导航结果另行记录；没有添加迁移代码。
+其他 schema 的 `name` 保持原值。独立 keyfile 实验在旧设置含 `name` 的情况下读到旧 schema 为 `'name'`、候选 schema 为 `'id'`，记录位于 `build-env/schema-migration/result.log`；因此候选不附加迁移代码。源 C 的测试从安装的 schema 读到 `id` 后直接激活真实应用，没有覆盖设置或添加迁移代码。
 
 ## 端口绑定丢失用户填写的地址
 
@@ -95,3 +95,17 @@ Docker 29.9.3 的历史真实客体接受了这些请求。旧 daemon 的兼容�
 工作区 `build-env/qemu-x86/results-pass-docker/qemu-x86/docker-live.log` 保留较早 Docker 全操作测试的输出；`build-env/qemu-x86/registry-results/qemu-x86/` 保留真实 Distribution 2.8.3 的匿名与 BasicAuth 推送/拉取记录，两个测试分别用时 3.03 秒与 3.71 秒并通过。它们所测候选含已撤回的通用修复，当前 scoped 验收另行记录。
 
 相关广泛测试脚本已移至工作区 `build-env/archived-*` 调查记录，不再作为仓库 CI 的移动适配门槛。本文件的基线源码链接可独立审阅；工作区日志用于追溯此次调查，未将模拟机结果写成 Pixel 2 实机结果。
+
+## 空的已保存视图触发 GtkStack 警告
+
+源 C 完整启动验证在创建主窗口及独立 ClientView 时观察到 `Gtk-WARNING: Child name '' not found in GtkStack`。源码依据为[上游 schema 的 last-used-view 默认值](https://github.com/marhkb/pods/blob/349be73c8bc2a3340e2b6187df1c0c676b63be82/data/com.github.marhkb.Pods.gschema.xml.in#L24-L28) `''`，以及 [ClientView 中的直接 GSettings 绑定](https://github.com/marhkb/pods/blob/349be73c8bc2a3340e2b6187df1c0c676b63be82/src/view/client_view.rs#L130-L136)。页面列表没有该名称。
+
+使用干净内存设置时，X11 英文、X11 中文和 Wayland 英文三组均出现此警告，随后实际主窗口、Images 侧栏导航与返回断言全部通过。工作区证据为 `build-env/qemu-x86/startup-verification/boot.log` 及三份独立 GTK 日志。上述 schema key 和 ClientView 绑定与基线相同，本轮未修改它们。
+
+## 双栏断点边界的既有最小宽度
+
+[上游 ClientView](https://github.com/marhkb/pods/blob/349be73c8bc2a3340e2b6187df1c0c676b63be82/src/view/client_view.blp#L11-L32) 在 `min-width: 668sp` 时展开双栏。本轮按 GTK 当前设置换算为 668 像素，并测试 667 与 668 像素两侧。在精确 668 像素宽度，英文测试输出 `AdwNavigationSplitView ... exceeds AdwBreakpointBin width: requested 700 px, 668 px available`；中文为请求 695 像素。测试使用较长的中英文连接名称，未连接 daemon，Images 面板处于原有加载状态。
+
+断点切换、Images 页面选择与窄屏返回动作均通过。边界截图 `build-env/qemu-x86/startup-verification/mobile-ui-wayland/navigation-668x366.png` 可见右端关闭按钮超出截图范围；366 与 651 像素使用单栏，1024 像素桌面双栏截图显示全部窗口按钮。当前导航测试只断言 ClientView 外框、侧栏返回及页面映射，没有把边界下所有子控件的可见范围纳入通过条件。
+
+`client_view.blp`、`client_view.rs` 和 `images_panel.blp` 对比基线均无改动。这是当前 GTK/libadwaita 环境下观察到的既有边界行为；本轮不调整其断点或面板布局。Pixel 2 的实际窗口装饰与显示缩放仍需实机检查。
