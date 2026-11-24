@@ -1,6 +1,6 @@
 # 上游既有问题与独立验证记录
 
-基线为 [Pods 349be73c8bc2a3340e2b6187df1c0c676b63be82](https://github.com/marhkb/pods/tree/349be73c8bc2a3340e2b6187df1c0c676b63be82)。以下问题在移动适配审查中发现。本轮保留上游业务行为；此前试做的通用修复及对应验收断言已撤回。下述完整启动阻塞已于2026-11-24获得用户对两行最小补丁的明确批准；其余条目只记录问题，不扩大开发范围。
+基线为 [Pods 349be73c8bc2a3340e2b6187df1c0c676b63be82](https://github.com/marhkb/pods/tree/349be73c8bc2a3340e2b6187df1c0c676b63be82)。以下问题在移动适配审查中发现。本轮保留上游业务行为；此前试做的通用修复及对应验收断言已撤回。完整启动阻塞已于2026-11-24获得用户对两行最小补丁的明确批准。末尾双栏裁切条目已转入直接相关的移动UI适配；其余业务条目只记录，不实施修复。
 
 证据分为源码确认、受控接口/组件验证、真实 Docker 客体验证。下文早期业务问题的真实客体复现使用 x86_64 Alpine 3.24、Docker 29.9.3；最终适配补丁还完成了 ARM64 客体验证，具体范围见[Docker 验证](testing-docker.md)。Pixel 2 的 Docker 29.9.2 和完整手机会话尚未完成验收。此前含临时修复的测试结果单独标为历史候选。
 
@@ -102,10 +102,30 @@ Docker 29.9.3 的历史真实客体接受了这些请求。旧 daemon 的兼容�
 
 使用干净内存设置时，X11 英文、X11 中文和 Wayland 英文三组均出现此警告，随后实际主窗口、Images 侧栏导航与返回断言全部通过。工作区证据为 `build-env/qemu-x86/startup-verification/boot.log` 及三份独立 GTK 日志。上述 schema key 和 ClientView 绑定与基线相同，本轮未修改它们。
 
-## 双栏断点边界的既有最小宽度
+## 镜像构建选项没有回填 Dockerfile 路径
+
+[上游 ImageBuildOptsDialog](https://github.com/marhkb/pods/blob/349be73c8bc2a3340e2b6187df1c0c676b63be82/src/view/image_build_opts_dialog.rs)在 `constructed` 中从已有opts回填tag、context目录和labels，没有把 `opts.dockerfile` 填入 `container_file_path_entry_row`；生成新opts时又从该输入框读取dockerfile。
+
+纠正轮的表单fixture传入非空dockerfile路径，实际GTK截图中的该字段仍为空；`build-env/qemu-x86/mobile-ui-baseline2/`保留源码快照与表单截图。该问题影响已有选项的回填，与视口宽度无关，产品文件保持上游原样。后续移动布局测试通过输入框的正常编辑路径填写长文件名，只验证输入、焦点和几何；不把该测试记作已有opts回填通过。
+
+## 创建容器的内存限制回填单位
+
+[上游 ContainerCreateOptsDialog](https://github.com/marhkb/pods/blob/349be73c8bc2a3340e2b6187df1c0c676b63be82/src/view/container_create_opts_dialog.rs)将已有 `memory_limit` 除以1000后填入数值框，而 Blueprint 的单位下拉框默认选择 MB；生成 opts 时再按当前单位乘以 `1000^(selected+1)`。
+
+本轮表单夹具传入512,000,000字节，baseline2/3的实际创建详情截图显示512000 MB。该观察验证了已有选项回填时的数值/单位不一致；Rust实现与基线相同，本轮保持原样。这个长数值用于布局压力检查，截图不作为正确内存配置的示例。
+
+## 全局搜索的无结果占位状态
+
+在真实 SearchPanel 中先搜索 `mobile`，然后经 GtkEditable 输入接口替换为 `no-matching-mobile-resource`。四类资源行数均已变为零，输入内容正确，Stack却保留 `search` 初始占位，而没有显示 `no-results`。该问题在1024×768桌面视口也复现；`build-env/qemu-x86/mobile-ui-auxiliary4/`保留20.14秒的失败日志、实际界面和源码快照。
+
+[上游 SearchPanel](https://github.com/marhkb/pods/blob/349be73c8bc2a3340e2b6187df1c0c676b63be82/src/view/search_panel.rs)的 `on_search_changed` 只在输入为空时主动调用 `update_view`，其他情况依靠资源模型的 `items_changed`。结合源码，替换文本期间的空值和随后零行到零行的过滤结果是候选原因；未修改或扩展其状态逻辑。
+
+后续布局检查保留并截图实际占位状态，另以明确标注的模板夹具显示已有 `no-results` 子页面，检查其竖屏几何和输入区域。该单独模板检查不计作无结果状态切换通过。SearchPanel生产文件、查询和模型逻辑保持上游原样。
+
+## 双栏断点边界：已转入移动适配
 
 [上游 ClientView](https://github.com/marhkb/pods/blob/349be73c8bc2a3340e2b6187df1c0c676b63be82/src/view/client_view.blp#L11-L32) 在 `min-width: 668sp` 时展开双栏。本轮按 GTK 当前设置换算为 668 像素，并测试 667 与 668 像素两侧。在精确 668 像素宽度，英文测试输出 `AdwNavigationSplitView ... exceeds AdwBreakpointBin width: requested 700 px, 668 px available`；中文为请求 695 像素。测试使用较长的中英文连接名称，未连接 daemon，Images 面板处于原有加载状态。
 
 断点切换、Images 页面选择与窄屏返回动作均通过。边界截图 `build-env/qemu-x86/startup-verification/mobile-ui-wayland/navigation-668x366.png` 可见右端关闭按钮超出截图范围；366 与 651 像素使用单栏，1024 像素桌面双栏截图显示全部窗口按钮。当前导航测试只断言 ClientView 外框、侧栏返回及页面映射，没有把边界下所有子控件的可见范围纳入通过条件。
 
-`client_view.blp`、`client_view.rs` 和 `images_panel.blp` 对比基线均无改动。这是当前 GTK/libadwaita 环境下观察到的既有边界行为；本轮不调整其断点或面板布局。Pixel 2 的实际窗口装饰与显示缩放仍需实机检查。
+上述记录来自源C/r1，当时三个文件与基线相同。该问题直接造成自适应导航中的按钮裁切，原需求已经授权其最小修复；此前只记录不修的分类有误。纠正轮按M-LAYOUT调整双栏阈值，并以非空列表、选择状态、长内容、子控件边界与宽窄切换检验。具体补丁和结果见[变更追踪](change-scope.md)及[验证报告](verification.md)。Pixel 2的实际窗口装饰与显示缩放仍需实机检查。

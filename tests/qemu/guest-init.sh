@@ -22,7 +22,11 @@ fi
 mkdir -p /run/user/1000
 chown -R tester:tester /out /run/user/1000
 chmod 700 /run/user/1000
-su tester -c /opt/pods-tests/guest-ui-tests.sh
+if [ "${PODS_TEST_LIVE_TERMINAL:-0}" = 1 ]; then
+    PODS_TEST_GUEST=1 /opt/pods-tests/guest-terminal-tests.sh
+else
+    su tester -c /opt/pods-tests/guest-ui-tests.sh
+fi
 status=$?
 echo "QEMU_UI_TEST_EXIT=$status"
 echo QEMU_NATIVE_TEST_GUEST_FINISHED

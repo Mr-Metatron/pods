@@ -1,12 +1,12 @@
 # Generate a checksum-pinned APKBUILD with build-aux/prepare-alpine.py.
 pkgname=pods
 pkgver=@VERSION@
-pkgrel=1
+pkgrel=2
 pkgdesc="Manage Podman and Docker containers"
 url="https://github.com/marhkb/pods"
 arch="aarch64 x86_64"
 license="GPL-3.0-or-later"
-depends="adwaita-icon-theme ca-certificates dconf gsettings-desktop-schemas openssh-client-default procps-ng"
+depends="adwaita-icon-theme ca-certificates dconf gsettings-desktop-schemas openssh-client-default procps-ng xdg-desktop-portal"
 makedepends="
 	blueprint-compiler
 	cargo>=1.92

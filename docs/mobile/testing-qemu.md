@@ -16,7 +16,8 @@ the release directory's `netboot/` subdirectory.
 
 Install the application's native APK and its dependencies into a writable guest
 root directory. For an uninstalled development build, the runtime packages are
-`gtk4.0`, `libadwaita`, `gtksourceview5`, `vte3-gtk4` and their dependencies.
+`gtk4.0`, `libadwaita`, `gtksourceview5`, `vte3-gtk4`,
+`gsettings-desktop-schemas` and their dependencies.
 The GTK 4 VTE library is in `vte3-gtk4`; the `vte3` package contains GTK 3 VTE.
 The GUI checks additionally use `xvfb`, `xvfb-run`, `xauth`, `dbus`,
 `font-dejavu` and `font-noto-cjk`. Wayland checks use `weston`,
@@ -24,8 +25,9 @@ The GUI checks additionally use `xvfb`, `xvfb-run`, `xauth`, `dbus`,
 dependencies; the application's APK does not depend on them.
 
 Extract the matching `modloop-virt` SquashFS image and place its `modules/`
-directory at `/lib/modules` in the guest. The UI runner does not start a Docker
-daemon or run general container lifecycle tests.
+directory at `/lib/modules` in the guest. The ordinary UI runner uses an isolated
+local HTTP fixture. The separately selected terminal check starts a disposable
+Docker daemon as described below.
 
 Keep generated disks, downloaded packages, kernels and screenshots outside the
 Git checkout. The checked-in scripts contain the reproducible test logic.
@@ -64,6 +66,60 @@ invokes the mobile UI checks under that account. Results are written under
 Wayland check. During development, `PODS_TEST_UI_LOCALES=C.UTF-8` and
 `PODS_TEST_WAYLAND=0` in `/etc/pods-test-env` select a single X11 run. Setting
 `PODS_TEST_UI_LOCALES=""` selects the Wayland check alone.
+
+The runner streams each process's log to the serial console and retains it in
+the output directory. Each process has a 600-second timeout; a development guest
+may set `PODS_UI_TEST_TIMEOUT` explicitly. A timeout is a failed run with retained
+evidence. `PODS_UI_TEST_OUTPUT_ROOT` selects a separate output directory for an
+iteration. `PODS_UI_TEST_SECTION=forms`, `auxiliary` or `pages` selects one
+section when diagnosing a concrete failure; final combined runs leave it unset.
+
+For a separate native color-chooser check, set `PODS_UI_TEST_COLOR_ONLY=desktop`
+to inspect the chooser's actual toplevel on the ordinary output. For the phone
+check, set `PODS_UI_TEST_COLOR_ONLY=phone`, `PODS_TEST_UI_LOCALES=""`,
+`PODS_TEST_WAYLAND=1`, `PODS_TEST_WAYLAND_WIDTH=366` and
+`PODS_TEST_WAYLAND_HEIGHT=651`. This measures a real 366×651 compositor output;
+merely shrinking the parent application would leave the independent chooser
+unconstrained. For the reduced-height output, select
+`PODS_UI_TEST_COLOR_ONLY=phone-short` and `PODS_TEST_WAYLAND_HEIGHT=300`.
+The test reaches the palette's rightmost column using its existing scroller,
+opens Custom, focuses the color-value entry and clicks the real Cancel button.
+It checks that cancellation preserves the selected color. The main combined
+test separately checks the form's existing `win.close` Cancel action in the
+actual application window; ordinary layout fixtures do not install that action.
+
+## Connected terminal check
+
+The optional live test uses the existing VTE widget, Docker exec transport and
+input actions with one temporary container in the guest. Install `docker`,
+`docker-cli`, `containerd`, `runc` and the matching kernel modules in the
+disposable filesystem. Copy `tests/qemu/guest-terminal-tests.sh` to
+`/opt/pods-tests/guest-terminal-tests.sh` with mode `0755`, and copy the verified
+Alpine minirootfs tarball for that guest architecture into the guest. Set:
+
+```sh
+PODS_TEST_LIVE_TERMINAL=1
+PODS_TEST_BASE_ROOTFS=/opt/pods-tests/alpine-minirootfs.tar.gz
+```
+
+The guest entry point invokes the opt-in helper as root to start its dedicated
+daemon at `/run/pods-ui-terminal.sock`, using a new private data directory,
+the VFS storage driver and no bridge or iptables rules. It imports the local
+root filesystem without network access and creates one labelled container with
+`--network none`. Only this test socket is given the guest test user's group and
+mode `0660`. The UI still runs as ordinary UID 1000. The helper removes its
+container and image and stops its daemon when the test exits.
+
+The exact ignored test is
+`ui_tests::terminal::live_terminal_keeps_input_and_resize`. It checks ordinary
+VTE commit input, clipboard paste through the touch button, the five auxiliary
+key byte sequences as received by the shell, Ctrl+C interrupting a command,
+selection/copy, and actual container `stty size` after each viewport change.
+X11 and Wayland runs retain terminal output, screenshots, Docker version and
+socket permissions. This check sends no requests to a host daemon and must not
+be directed at a user's existing containers. It exercises the current terminal
+implementation; actual IME preedit, touch delivery and Plasma Keyboard behavior
+remain device checks.
 
 ## Assemble and boot
 
@@ -106,16 +162,35 @@ approved by the user; the test neither overwrites settings nor substitutes a
 test schema. Each process uses a fresh temporary application configuration and
 `GSETTINGS_BACKEND=memory`.
 
-The test then constructs the existing `ClientView` with a real, isolated Docker
-client model. A temporary Unix listener satisfies the SDK's local transport
-check without running a daemon. The existing sidebar signal selects Images,
-and the existing `navigation.pop` action returns to the sidebar at narrow widths.
-The split-view state, selected page, mapped Images panel and return path are
-checked at portrait, landscape, reduced-height and desktop sizes. The existing
-`min-width: 668sp` breakpoint is converted using GTK's actual settings and tested
-immediately below and at its inclusive boundary. In the recorded environment,
-these widths are 667 and 668 pixels. Images remain in their loading state in this
-isolated model; this check covers navigation rather than populated daemon data.
+The test constructs the existing `ClientView` with real GObject models populated
+through the existing refresh and inspection entry points. A local Unix HTTP
+fixture supplies empty and populated containers, images and volumes, details,
+logs and process rows. It records requests and permits only the read-only
+operations used by these UI checks. This tests actual view state, allocation,
+focus, scrolling and navigation; daemon operation results are checked separately.
+
+The sidebar and existing navigation actions select each resource and return at
+narrow widths. Checks cover empty states, ordinary and selected lists, grid/list
+views, search results and no-results states, menus, long labels, details and
+cancelled confirmation dialogs. Split-view children and header buttons must fit
+on both sides of the revised 720sp threshold, as well as at the former 668sp
+boundary. This catches the child clipping that the earlier loading-only check
+did not assert. Long image and volume labels must retain usable text width while
+short labels keep their compact inline layout.
+
+Form checks use the real connection, container, image, volume, copy, commit,
+prune and action dialogs. They exercise text entry, focus, scroll-to-end and
+menus at phone, reduced-height and desktop sizes. Global search, saved-connection
+filtering, engine information, action history, Inspect, logs and process views
+are checked in their populated states. Failed independent sections retain their
+panic output while the remaining sections run; any failed section fails the
+combined test.
+
+The existing global-search transition can leave its initial placeholder after
+an unmatched query removes all rows. This unrelated state issue is retained in
+[Upstream issues](upstream-issues.md). Its actual state is captured separately;
+the no-results page has an explicitly labelled template-only layout check. That
+check does not count the existing query-to-placeholder transition as passed.
 
 The changed widgets are also instantiated from their actual templates and
 models. Their checks use 360 and 366 pixel portrait widths, 651 pixel landscape
@@ -128,14 +203,14 @@ toolbar breakpoints, 44-pixel pointer targets, the five fixed auxiliary-key byte
 sequences, suggestion popup height and selection, and the connection dialog.
 Both socket-help popovers are measured at portrait, landscape and reduced-height
 viewports. Their text is checked for a usable width and scrolled to the end;
-screenshots preserve the beginning and end of each popover. Paste continues to call the
-existing terminal paste function; its connected-terminal and software-keyboard
-behavior remains a device acceptance item.
+screenshots preserve the beginning and end of each popover. The separate live
+terminal check below exercises the existing paste function with a connected
+container. Actual software-keyboard protocol and preedit remain device checks.
 
-Two existing warnings observed during main-window and navigation checks are
-recorded separately in [Upstream issues](upstream-issues.md): an empty saved-view
-default and the split view's minimum size at the exact 668-pixel boundary. The
-approved schema correction and tests do not change either behavior.
+The empty saved-view default remains recorded in [Upstream issues](upstream-issues.md).
+The 668sp split-view clipping is directly relevant to mobile layout and is
+addressed by the local threshold change; historical source C results below
+retain their original narrower coverage.
 
 Xvfb supplies the X11 run. For Wayland, Weston runs its X11 backend inside a
 separate Xvfb display, with the Pixman software renderer. The application uses

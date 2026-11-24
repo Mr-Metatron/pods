@@ -1,6 +1,6 @@
 # Pods 移动适配源码审查
 
-审查基线为上游与用户 fork 的 `349be73c8bc2a3340e2b6187df1c0c676b63be82`，版本 3.3.0。适配范围以修订后的[设计](design.md)为准。上游已有问题只在[独立问题清单](upstream-issues.md)记录；当前补丁保留原业务逻辑。
+审查基线为上游与用户 fork 的 `349be73c8bc2a3340e2b6187df1c0c676b63be82`，版本 3.3.0。适配范围以修订后的[设计](design.md)为准。与本次适配无关的上游业务问题只在[独立问题清单](upstream-issues.md)记录；当前补丁保留原业务逻辑。
 
 ## 架构
 
@@ -12,14 +12,20 @@ Pods 使用 Rust、GTK4、Blueprint 和 libadwaita。`src/engine` 通过统一 A
 
 | 已有实现 | 源码 | 本次决定 |
 | --- | --- | --- |
-| 668sp 折叠导航与返回栈 | `src/view/client_view.blp` | 保留 |
-| 主窗口最低 360 宽 | `src/view/window.blp` | 保留，以 360/366 实测变更控件 |
+| 折叠导航与返回栈 | `src/view/client_view.blp` | 复用现有组件；668sp展开时实测裁切，按M-LAYOUT局部修正阈值并验证非空/选择状态 |
+| 主窗口最低 360 宽 | `src/view/window.blp` | 保留，以360/366检查相关页面与操作子控件 |
 | 窄屏列表动作移到底部 | containers/images/pods/volumes panel | 保留，不批量修改列表页 |
-| Adw.Dialog、ToolbarView、PreferencesPage | 创建和操作弹窗 | 保留，仅涉及连接说明的滚动和换行 |
+| Adw.Dialog、ToolbarView、PreferencesPage | 创建和操作弹窗 | 复用；验证编辑、完成、错误状态和缩短高度，只调整确实失败的局部布局 |
 | 自动换行的资源、端口、设备和挂载条目 | WrapBox 等现有组件 | 保留 |
 | 终端 resize 和 exec | `src/view/container_terminal.rs` | 复用既有会话和生命周期 |
 
 ## 直接适配点
+
+ClientView 的668sp双栏阈值在实测中小于子控件的最小宽，右侧按钮被裁切。只将这一阈值提高到720sp，保留现有 NavigationSplitView、侧栏选择与返回动作；同时检查新阈值两侧、原阈值、手机横竖屏与桌面。
+
+非空长名称夹具显示，镜像标签和卷名会被右侧计数压缩到约100像素，产生多行窄列。镜像行、卷行及容器详情中的卷条目只把文字和计数之间的横排改为上游已使用的 Adw.WrapBox。文字需要时占据整行，计数转到下一行；操作按钮位置、模型、菜单和短内容的并排呈现保持原路径。
+
+创建容器的三页切换原为等宽分配。英文 Integration 的84像素标题区在360/366宽下发生省略；仅关闭 ToggleGroup 的 homogeneous 后，该标题取得106像素并完整显示。中文对照没有省略，三按钮仍可达；不改变页名、绑定或创建选项。
 
 共享搜索条将文本、匹配选项、计数和导航横向排列。新增窄屏模式把选项放入 Popover，保留可用输入宽度；宽屏恢复原先直接开关。实际尺寸测试发现新增断点最初被搜索条自然宽度限制，因此只在该组件上增加 `hexpand`，使断点根据可用栏宽切换。
 
@@ -43,13 +49,15 @@ Docker build 和容器文件上传改用用户缓存目录中的匿名临时文�
 
 使用系统 GtkSourceView、GTK4 VTE、Adwaita 图标、Dconf、桌面 schemas、CA 证书与 SSH 客户端。Alpine 默认 docker-engine 没有 procps-ng，而 Pods 的既有进程查询要求其 ps 的 CPU 百分比字段，因此原生包声明 procps-ng。中文包只把已有 zh_Hans catalog 映射到标准 zh_CN locale，不改旧翻译内容。
 
+文件选择由 `src/utils.rs` 的既有 ashpd OpenFileRequest/SaveFileRequest 直接调用桌面portal。原生包显式声明 `xdg-desktop-portal` 前端；用户规格已提供1.21.2及KDE6.6.6后端。保留上游文件选择实现和桌面自身的后端，实际KDE文件选择与取消留给设备验收。
+
 复用上游 Meson 安装二进制、desktop、图标、GSettings、GResource 和 metainfo。Cargo 缓存、离线准备和编译并发放在 APKBUILD；Meson 仅增加锁定 Cargo.lock 的参数。两架构采用原生编译，不增加通用交叉编译 helper。原发行 workflow 和 vendor 脚本保持上游状态。
 
 ## 验证边界
 
 完整系统 QEMU 已证明沙箱能够运行独立客体内核及 Unix socket。较早宽范围候选还完成过真实 Docker 和 Registry 流程；这些结果属于已经撤回部分代码的历史候选，不能作为当前补丁验收结论。
 
-收拢后的测试直接覆盖修改的控件、socket、请求并发和归档传输。用户已单独批准修复直接阻塞首次启动的两行 schema，按 M-STARTUP 跟踪。包含该修复的源 C 已通过两架构原生构建、安装，以及 x86_64 / ARM64 完整系统 QEMU 的启动、既有导航和 Wayland 检查；ARM64 正式程序还连接真实隔离 Docker 并显示空容器列表。准确范围与制品哈希见[验证报告](verification.md)。Pixel 2 的 GPU、触屏、中文 preedit、Plasma Keyboard、295% 缩放、Portal、休眠、RSS/PSS 和功耗仍需实机记录。
+源C/r1的测试覆盖已改共享控件、socket、请求并发、归档传输，以及用户按M-STARTUP批准后的完整启动。其导航只用加载态列表，ARM64正式程序使用真实空列表，尚未覆盖非空列表、详情和大部分操作表单。纠正轮补充这些UI状态，检查实际子控件边界、焦点和滚动可达性；依据失败证据决定最小修改。原生构建、安装和QEMU的准确版本、范围及制品哈希见[验证报告](verification.md)。Pixel 2的GPU、触屏、中文preedit、Plasma Keyboard协议、295%缩放、Portal、休眠、RSS/PSS和功耗仍需实机记录。
 
 ## 来源
 

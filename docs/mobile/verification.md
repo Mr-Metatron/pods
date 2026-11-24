@@ -1,125 +1,90 @@
 # Linux Mobile 适配验证记录
 
-日期：2026-11-24。产品源码固定为 [20ed3a2f6ced56710d8c3588c238b61e66d90f99](https://github.com/Mr-Metatron/pods/commit/20ed3a2f6ced56710d8c3588c238b61e66d90f99)（下称源 C），上游比较基线为 `349be73c8bc2a3340e2b6187df1c0c676b63be82`。本报告与固定源码的 APKBUILD 放在后续文档提交中；该提交不再修改产品或测试代码。
+日期：2026-11-24。上游比较基线为 `349be73c8bc2a3340e2b6187df1c0c676b63be82`，本轮从 `541159251393f7ddfce55c254495f516239fa525` 继续纠正移动 UI 覆盖不足的问题。最终固定源码、原生 r2 包和 ARM64 制品验收结果在本轮完成后更新到本报告。
 
-源 C 包含用户明确批准的[两行启动 schema 修复](proposals/startup-schema.patch)，原生包版本为 `3.3.0_git20261124-r1`。两架构原生构建与安装均已成功，x86_64 和 ARM64 完整系统 QEMU 的英文、中文、Wayland 三组完整主窗口及导航检查全部通过。ARM64 正式安装程序还连接了真实隔离 Docker，显示实际加载完成的空容器列表并正常退出。
+[r1 固定版本的验证报告](https://github.com/Mr-Metatron/pods/blob/541159251393f7ddfce55c254495f516239fa525/docs/mobile/verification.md)保留其准确范围：完整启动、加载态导航、共享控件，以及真实 Docker 空列表。那些结果没有覆盖本轮新增的非空详情与表单场景；本轮逐项补充实际组件验证。
 
-## 范围审计
+## 设计与范围
 
-[设计](design.md)已在 Google Drive 存档并读回，包含 In Scope、Out of Scope，以及 M-STARTUP 的明确批准边界。[变更追踪](change-scope.md)与 [scope-map.json](scope-map.json)将保留的代码、构建和测试文件映射到移动需求。
+修订设计先于本轮产品修改同步到[Google Drive](https://drive.google.com/file/d/1aBDSfs5XH-tiBO4DZcCdLd3k4OHcC7sG)，修改时间为2026-11-24 08:34:19 UTC，已完整读回并与本地文件一致。归档包含 In Scope、Out of Scope、架构、修改范围与验收矩阵，SHA-256为 `297bb4298534d0b0523dc847c0904f49c6bb106673c34883fbb3d62dc283f369`。
 
-范围收拢后，14 个撤回文件与上游基线逐字节相同；schema 的 choice/default 从 `name` 改为 `id` 是单独批准的两行例外。Cargo.lock 中 335 个包的名称、版本、来源和 checksum 保持不变。其他通用业务修复、日志重写、发行流程修改、旧文案补全与广泛业务测试已撤回，发现的问题保留在[独立清单](upstream-issues.md)。
+直接影响手机竖屏、触屏、导航、弹窗和输入的既有 UI 问题按原始需求处理。每个补丁须有实际失败依据；通过检查的页面保留原实现。[变更追踪](change-scope.md)和[完整文件映射](scope-map.json)记录需求关联。用户单独批准的启动 schema 两行修改继续保留；无关上游问题只进入[独立清单](upstream-issues.md)。
 
-原有 668sp 折叠导航、360 宽窗口下限、列表底部动作、Adw.Dialog、WrapBox、容器操作和 exec 会话继续使用上游实现。新改动集中在本地 socket 与可读错误提示、窄屏搜索、连接帮助、终端辅助键、建议列表高度、原生打包和直接资源预算。
+本轮检查确认 Cargo.lock 中335个包的名称、版本、来源与校验值均保持基线不变。上游的发行流程、通用构建声明、端口转换、stats公式、连接取消、容器状态、build/push结果、日志、搜索状态以及创建选项回填实现保持原样。新增 GTK 场景仅在 `#[cfg(test)]` 构建中编译。
 
-## 完整启动、导航与移动控件
+## 最小产品改动
 
-x86_64 完整系统 QEMU 使用 TCG、独立 Linux 6.18.60 客体内核和 Alpine 3.24.4，分配 2 个虚拟 CPU、2 GiB RAM。测试以 UID 1000、GTK 4.22.4、libadwaita 1.9.2、VTE 0.84.0 运行，启用 `G_DEBUG=fatal-criticals`。三组使用相同的源 C 测试二进制及安装资源。
+相对r1，本轮产品修改目前仅涉及下表五个 Blueprint 文件，没有增加应用框架或改动引擎、模型与请求语义。原生包另外显式声明既有文件选择路径所需的 `xdg-desktop-portal` 前端；目标规格已有KDE后端，保留桌面自身的后端选择。
 
-| 后端与语言 | 结果 | 用时 | 截图 |
-| --- | --- | --- | --- |
-| X11 / Xvfb，`C.UTF-8` | 1 项组合场景通过 | 38.64 秒 | 38 张 |
-| X11 / Xvfb，`zh_CN.UTF-8`，未设置 LANGUAGE | 1 项组合场景通过 | 35.20 秒 | 38 张 |
-| GdkWaylandDisplay / nested Weston，虚拟键鼠 seat | 1 项组合场景通过 | 35.01 秒 | 38 张 |
-
-测试读取实际安装的 `images.sort-attribute='id'`，使用全新配置激活真实应用主窗口，检查 366×651、651×366、366×300、360×651、1024×768。随后构造原有 ClientView，通过既有侧栏信号进入 Images，再通过既有返回动作回到窄屏侧栏。导航 fixture 使用隔离 client 模型和临时 Unix listener，Images 保持原有 loading 状态；真实 daemon 连接另行测试。
-
-受影响控件覆盖窄屏搜索选项与桌面恢复、终端辅助栏及五组输入字节、建议选择和高度收缩、连接表单及可滚动帮助。终端六个按钮的点击区域均至少 44×44，新增栏最小宽度为 338。366×300 用于验证可用高度缩短后的布局，实际软键盘和中文 preedit 按实机表执行。
-
-三组都验证了原有导航断点下方及边界的折叠状态、选中页面、映射状态与返回路径。原有 split view 在 668 像素边界要求 695/700 像素宽，截图显示右端关闭按钮超出范围；该上游问题已独立记录，未把边界所有控件可见性记为通过。手机 366/651 宽的折叠布局及 1024 宽桌面布局通过。
-
-Wayland 客户端实际使用 GdkWaylandDisplay；Weston 的 X11 backend 在客体 Xvfb 中运行，XTest 事件为 Weston 提供输入 seat。帮助弹层按实际 GTK 内容边框与 padding 测量，透明阴影单独记录。产品 Popover 行为保持原样。中文进程的 gettext 断言通过；上游未翻译的欢迎文案继续显示英文。
-
-整轮输出 `QEMU_UI_TEST_EXIT=0`，显示进程清理、文件同步、只读重新挂载及关机完成，无晚到文件系统 I/O 错误。114 张 PNG 均成功解码，代表性手机、桌面、受限高度及弹层截图已查看。命令、尺寸和证据细节见 [QEMU 验证](testing-qemu.md)。
-
-## 原生 APK 与 ARM64
-
-源 C 的 [Native Alpine CI](https://github.com/Mr-Metatron/pods/actions/runs/45345743799) 在原生 x86_64 与 aarch64 runner 上均为 completed/success；构建、安装、GTK 验证和制品上传步骤均通过。x86_64 job 的真实 Docker 连接检查也通过，aarch64 job 按设计跳过 runner daemon 检查，其真实 Docker 检查另在 ARM64 完整系统 QEMU 执行。
-
-最终制品为 `pods-alpine-aarch64`（artifact `14899187208`）和 `pods-alpine-x86_64`（artifact `14898843991`），对应源码均为 C。两份 ZIP 的 API digest、ZIP 完整性、两个 APK 与三个测试二进制的内部 SHA-256 均核对一致；正式二进制及 harness 的 ELF 架构和 musl 解释器正确。此前源 A 的 APK 或包含已撤回修改的更早候选不用于最终交付。
-
-| 原生构建 | APK 安装与元数据检查 | 普通用户契约测试 | 英文完整启动/导航/控件 | 中文完整启动/导航/控件 |
-| --- | --- | --- | --- | --- |
-| aarch64 | 通过 | 12 passed | 1 passed，17.86 秒 | 1 passed，17.74 秒 |
-| x86_64 | 通过 | 12 passed | 1 passed，18.14 秒 | 1 passed，18.04 秒 |
-
-每架构保留 76 张截图。构建及 GTK 测试用户为 UID 1000；x86_64 的独立 Docker smoke 用户为 UID 1001，仅在测试容器内获得 socket 组访问权。该 smoke 对真实 Docker 28.0.4 通过，读取到 1 个容器、7 个镜像和 0 个卷，全程只读。原生测试运行于 musl 1.2.6、GTK 4.22.4、GLib 2.88.4、libadwaita 1.9.2 和 VTE 0.84.0。
-
-ARM64 安装包的准确校验值如下；其正式 ELF 使用 `/lib/ld-musl-aarch64.so.1`。
-
-| 文件 | 字节数 | SHA-256 |
+| 场景与修改前证据 | 最小调整 | 验证要点 |
 | --- | --- | --- |
-| `pods-3.3.0_git20261124-r1.apk` | 4,402,910 | `9657f58789e7f649316867e24ad3e49011e313bbef54d932a738ab4d66e1bd99` |
-| `pods-lang-3.3.0_git20261124-r1.apk` | 148,034 | `b69de7919d969e3b4783c22d2d98c84b9e24805c5be46661870be768d360e718` |
+| ClientView 在668sp展开双栏，实际子控件最小宽为英文700px、中文695px，右侧按钮裁切 | 仅将该双栏阈值提高到720sp | 普通与选择状态、阈值两侧、旧边界、手机横竖屏与桌面，检查实际子控件和返回路径 |
+| 镜像标签与卷名被同行状态计数挤成约100px窄列 | `image_row.blp`、`volume_row.blp` 内部使用已有 Adw.WrapBox | 360/366宽的普通列表中，镜像文字本身取得230/236px，卷名取得249/255px；选择状态分别为243/249px和262/268px。短内容与宽屏保持并排，菜单和计数绑定不变 |
+| 容器详情的挂载卷名在338px行中只有108px | `container_volume_row.blp` 局部用同一 WrapBox，保留菜单位置 | 360/366宽时卷名取得243/249px；366×300、滚动与菜单检查通过 |
+| 创建容器的等宽分页使 Integration 标题只有84px并被省略 | `container_create_opts_dialog.blp` 只关闭 ToggleGroup 的 homogeneous | 英文标题获得106px并完整显示；中文对照通过，三按钮仍可达，页面与字段逻辑不变 |
 
-随包公钥为 `builder-6b053817.rsa.pub`，文件 SHA-256 为 `9b7b08a3cdb33f9a6d6f38cfe790c0106c6a7c8720d322e9b73b187c3218d429`。其 SPKI DER SHA-256 指纹为 `e00d5d6116b7cc8febecdf5a5e9ea55742e2f4051d029feebe5af10b468521a8`。每次 CI job 的签名密钥独立，安装时使用该次、该架构的匹配公钥。
+端口摘要仍完整换行，展开的IP字段、删除/展开操作和焦点可达；没有把它改成省略文本。环境变量/标签双输入行、操作完成/错误弹窗、进程搜索和保存连接筛选均已有可用路径，实测通过后保留原实现。
 
-ARM64 完整系统 QEMU 使用这两个 r1 APK 和同制品中的三个测试二进制。客体内完成签名安装、GLib schema 与图标触发器，实际安装版本为 `3.3.0_git20261124-r1`，从安装的 schema 读到排序默认值 `'id'`。Linux 为 6.18.60-0-virt，页大小实际为 4096 字节。
+## 覆盖与结果的口径
 
-| ARM64 完整系统客体检查 | 结果 |
+UI 测试使用真实 GObject 模型、原有 refresh/inspect 入口以及实际 GTK/libadwaita 组件。隔离 Unix HTTP 夹具提供只读数据，保留请求记录；没有向产品增加测试专用模型接口。视口为360×651、366×651、651×366、366×300和1024×768，并补充导航边界。366×300检查可用高度缩短后的几何和焦点。
+
+列表、详情、共享控件按相关场景覆盖上述五种视口；多数表单检查366×651、366×300与1024×768，创建容器、提交和复制另查360宽，双输入行和操作状态弹窗另查横屏。实际逐场景尺寸保留在测试源码与截图文件名中。原生颜色窗口使用独立输出专测，不能用父窗口尺寸推定其边界。
+
+表单的取消动作另在真实 `PdsWindow` 中点击验证，要求只关闭当前弹窗并保留主窗口。普通布局夹具未安装主窗口的 `win.close` 动作，其截图中的取消按钮状态与这项真实动作检查分别记录。
+
+| 页面与状态 | 检查范围 |
 | --- | --- |
-| 普通 UID 1000 的 Unix socket / 传输契约 | 12 passed，0 failed，0 ignored，0.47 秒；含实际 PermissionDenied |
-| 真实 Docker 29.9.3 的只读连接 | 1 passed，0.29 秒；容器、镜像、卷均为零 |
-| X11 英文完整启动、导航与控件 | 1 passed，37.70 秒，38 张截图 |
-| X11 中文完整启动、导航与控件 | 1 passed，34.16 秒，38 张截图 |
-| GdkWaylandDisplay 完整启动、导航与控件 | 1 passed，33.14 秒，38 张截图 |
-| 正式 `/usr/bin/pods` 连接隔离 daemon | 已加载真实空列表，桌面和竖屏截图人工复核通过，原 app.quit 正常退出 |
+| 主窗口与导航 | 干净配置完整启动、欢迎页、既有侧栏选择/返回、宽窄切换和双栏边界 |
+| 容器、镜像、卷 | 空与非空列表、长名称、选择模式、底部动作、列表/网格、搜索、菜单及三类详情 |
+| 容器详情与辅助页 | Running/Exited/Dead、长字段、滚动到底部、重命名、取消删除、Inspect、已加载日志、进程表滚动/选择/搜索 |
+| 创建与操作表单 | 连接、容器三页、提交、双向复制、镜像拉取/构建/标签/推送、卷创建、清理、设备/挂载/标签输入及完成/失败/取消状态 |
+| 输入与补充页面 | 输入焦点在可见滚动区内、长内容、低高度、建议弹层、连接帮助、全局搜索结果、保存连接、引擎信息、操作历史 |
+| 独立颜色窗口 | 从实际颜色按钮打开独立 GTK toplevel，在普通输出与真实366×651 Wayland输出检查；不以父窗口尺寸代替输出尺寸 |
+| 连接中的终端 | 独立真实 Docker 容器中的输入、粘贴、复制、辅助键、中断与行列同步 |
 
-ARM64 整轮 `QEMU_ARM64_SOURCE_C_GUEST_EXIT=0`，同步、只读重新挂载后正常关机。第一轮安装已成功，但 scratch 脚本误把 `apk info -v` 的描述输出当作版本，导致版本断言退出。首次日志保存在 `candidate-C-attempt1-fixture-version-query/`；只修正该测试脚本的版本读取和离线查询后，使用干净磁盘与相同 C 制品重跑。产品、APK 和仓库测试代码没有变化。
+全局搜索把已有查询替换成无匹配查询后，资源行数为零而仍显示初始 `search` 占位；在桌面宽度也复现。生产搜索逻辑保留。测试截图实际状态，并另以明确标记的模板夹具检查 `no-results` 页几何；这不计作查询到空态的切换通过。Dockerfile路径和内存单位回填缺陷同样独立记录，表单几何测试不作为其业务正确性证明。
 
-正式程序验证使用普通 UID 1000、独立 XDG 配置及 keyfile backend，只预设合法的本地连接 UUID。安装的排序默认值在运行前后均为 `'id'`。截图显示连接名 `QEMU local Docker`、Docker `v29.9.3` 与 `No Containers Available`，没有加载指示器或连接错误。程序前后读取的三类资源清单均为空。桌面实际 X11 外窗为 1024×768；竖屏请求 366×651 后实际外窗为 370×651，图注保留实测值。精确的 360/366 内容视口由上述 GTK harness 单独验证。
+## 开发阶段证据
 
-这项正式程序检查的后端为 X11 / Xvfb，Wayland 来自独立 harness。正式程序 SHA-256 为 `44105efa4230c92b2be42a19600766252314f81d7f9d76e5a2f696cbd0560af7`，与 APK 解出的二进制相同。它验证保存的本地连接、真实列表加载及窄屏呈现，没有执行容器或镜像写操作。
-
-[APKBUILD](../../packaging/alpine/APKBUILD)已固定到源 C 的 GitHub 归档和实际 SHA-512。归档完整下载，大小 1,279,912 字节；gzip/tar 完整，548 个源文件的 Git blob ID 全部与源 C 一致。Alpine `abuild -F -d verify unpack` 已通过，解包目录匹配 recipe 的 `builddir`。SHA-512 为：
-
-```text
-88a571a743f5353ee4e56c23e6738099b2dfa3682b114a3b2c34fc5d9781953c06a7d96556e52b20a8e427fb6fdc1b7497af3d6341f8a870d71b723505fbd181
-```
-
-配置 abuild 与签名密钥后可直接构建：
-
-```sh
-cd packaging/alpine
-abuild -r
-```
-
-包使用系统 GTK、libadwaita、GtkSourceView、VTE 和图标资源，安装 desktop、GSettings、GResource 与中文 catalog，不依赖 Flatpak。`pods-lang` 提供 zh_CN 到上游 zh_Hans 的应用级映射；procps-ng 满足原有本地 Docker 进程列表的 ps 参数要求。完整依赖、编译内存设置和签名流程见[打包说明](../../packaging/alpine/README.md)。
-
-## 本机连接与权限
-
-源 C 保留范围收拢后的 engine 实现，只增加已批准 schema 及对应启动测试。当前范围的契约测试覆盖真实 Unix socket、引擎识别、访问错误、Docker stats 最多四个并发请求，以及 Docker/Podman 接收的上传 tar 内容；共有 12 项，包含九个适配测试与三个既有基础测试。
-
-真实权限测试由普通用户连接权限为零的自建 socket，保留 `PermissionDenied` 和原始错误来源；两架构原生及 ARM64 客体均通过。真实 Docker smoke 仅执行识别、ping、info 和容器/镜像/卷列表读取。完整记录和复现命令见 [Docker 验证](testing-docker.md)。
-
-GUI 继续以普通用户运行。应用显示实际 socket 和持久错误说明，不执行授权命令。系统 Docker 的组授权由管理员管理，加入相应组后需重新登录桌面；rootless 服务保留用户自己的运行时 socket。
-
-## 证据与历史边界
-
-| 记录 | 工作区相对路径 |
+| 记录 | 实际结果与边界 |
 | --- | --- |
-| 源 C x86_64 GUI 串口、三组日志、114 张截图及资源哈希 | `build-env/qemu-x86/startup-verification/` |
-| 源 C 原生 ARM64 APK、签名公钥、日志、76 张截图及 ELF | `build-env/native-scoped-C-arm/` |
-| 源 C 原生 x86_64 APK、日志、76 张截图及 Docker smoke | `build-env/native-scoped-C-x86/` |
-| 源 C ARM64 客体安装、12 项契约、Docker、三组 GUI 与正式程序证据 | `build-env/qemu-arm64/candidate-C-evidence/` |
-| 首次 ARM64 版本查询 fixture 失败的独立记录 | `build-env/qemu-arm64/candidate-C-attempt1-fixture-version-query/` |
-| 源 C 固定归档校验与解包 | `build-env/pinned-source/20ed3a2f6ced56710d8c3588c238b61e66d90f99-verification.json` 及同目录日志 |
-| 源 A x86_64 后端与只读 Docker | `build-env/qemu-x86/scoped-docker-results/scoped-docker/` |
-| 源 A x86_64 独立控件三组记录 | `build-env/qemu-x86/scoped-verification/` |
-| 源 A ARM64 环境预检 | `build-env/qemu-arm64/preflight-A-evidence/` |
+| `mobile-ui-baseline1` | 修改前长镜像标签和卷名的窄列截图；该轮日志夹具的until=0处理错误保留原始失败，随后只修测试响应 |
+| `mobile-ui-baseline2` | 158张表单截图；测试客体缺少桌面schema导致中断。APK原已声明依赖，只补齐客体 |
+| `mobile-ui-baseline3` | 表单、详情、日志、Inspect及进程页子阶段通过；全局搜索旧缺陷和组合测试超时均保留，整轮没有记作通过 |
+| `mobile-ui-auxiliary4` | 20.14秒失败，明确记录全局搜索0行而占位错误；该生产行为保留 |
+| `mobile-ui-toggle4` | 同实例仅切换homogeneous作对照，英文20.73秒、中文16.14秒通过；22张截图，随后只改一项模板属性 |
+| `mobile-ui-live4` | 真实Docker终端在X11与Wayland分别18.01秒、17.29秒通过，14张截图及实际终端文本 |
+| `mobile-ui-color-desktop4/5` | 测试没有先滚动至颜色按钮，观察不到chooser；未据此更改产品。修正实际滚动/点击与窗口观察后另行验证 |
+| `mobile-ui-full5` | 90.61秒结束，131张截图；辅助页面与共享控件通过。新分页检查和宽窄切换的帧时序检查未通过，整轮保持失败记录 |
+| `mobile-ui-color-desktop6` / `mobile-ui-color-phone6` | 分别8.05秒、7.53秒通过，合计4张截图。独立颜色窗口在366×651的真实Wayland输出上自然分配366×308内容区，确认/取消按钮可达，取消保持原颜色；色盘末列与自定义编辑器另补专测 |
+| `mobile-ui-full6` | 600秒达到执行器时限，保留379张截图；表单、辅助页面、列表与详情三个阶段全部完成，组合用例仍按超时失败记录。最后共享控件尚未执行，随后只改进测试等待并重跑完整用例 |
+| `mobile-ui-full7` | 479.96秒失败，保留379张截图；真实主窗口取消、表单、辅助页和共享控件通过。三个720选择态的删除按钮可达断言通过；详情分组在日志页面检查后遇到5秒绘制等待超时，保留失败并增加精确调用与绘制阶段诊断 |
+| `mobile-ui-color-desktop7` | 7.19秒失败，色盘右端五个色块通过；测试对自定义色块误用了普通Widget激活入口。随后改为触发该原生控件已有的Space键处理器，产品未修改 |
+| `mobile-ui-pages8` | 独立页面组完整通过，463.80秒、140张截图。包含日志返回、Exited/Dead详情与最终Top搜索；没有触发慢帧或帧超时诊断。此组单独执行，最终组合结果仍由匹配源码的原生CI及ARM64客体给出 |
+| `mobile-ui-color-desktop8` / `mobile-ui-color-phone8` / `mobile-ui-color-phone-short8` | 桌面7.75秒通过；两组手机输出分别8.06秒和7.52秒失败，原因均为自定义编辑器的输入区右缘超出原生横向滚动视口2px。实际色值可见，原始截图与矩形保留；随后把焦点可见性和完整输入区的滚动可达性分别检查 |
+| `mobile-ui-color-desktop9` / `mobile-ui-color-phone9` / `mobile-ui-color-phone-short9` | 桌面9.19秒、366×651 Wayland 9.12秒、366×300 Wayland 8.03秒全部通过，各6张截图。色盘末列可达；默认输入首尾光标可见，沿原有横向滚动条移动后完整输入区通过严格边界检查，取消保持原色；颜色产品代码未修改 |
 
-源 C 本地 x86_64 GTK 测试二进制 SHA-256 为：
+开发客体为x86_64、Alpine3.24.4、Linux6.18.60-virt、2个虚拟CPU、2GiB RAM、QEMU TCG，无KVM和网络接口。GTK4.22.4、GLib2.88.4、libadwaita1.9.2、VTE0.84.0；GUI以UID1000运行。Wayland使用有输入seat的nested Weston和软件渲染，应用实际后端为GdkWaylandDisplay。
 
-```text
-7bf8bc18fc560e02fb7822232b59628a52ac52239db098ed0af74d145727d492
-```
+测试执行器保留实时日志、每进程600秒超时和准确退出状态。主循环等待有截止时间；缩放后等待GTK实际after-paint帧，再检查窗口和子控件的精确分配。没有放宽裁切断言来消除失败。每次开发执行保存二进制、安装资源和实际编译源码快照的哈希；未重新编译的短专测明确引用原快照。
 
-源 A `f427564e41347ae8bbe4a3a7f8e01eccadc18aa0` 的 [Native Alpine CI](https://github.com/Mr-Metatron/pods/actions/runs/45342088782)两架构已通过，QEMU 后端在 x86_64 与 ARM64 均通过 12 项契约和真实 Docker 29.9.3 的只读 smoke。源 A 使用原 schema，GUI 仅测试独立控件，未完成完整应用启动。A 的原生包版本为 r0；本次交付使用包含已批准启动修复的 C / r1。
+第8次测试构建按每帧完成回调请求下一帧，保留两次after-paint与5秒等待条件，并记录慢等待的调用位置、帧数、窗口状态和单次GLib事件处理耗时。开发完整组与页面专测将外层进程预算显式设为1200秒；CI保持600秒，最终ARM64客体单独记录其预算。页面专测和先前完整组的运行上下文不同，未将单独通过用作超时根因的唯一证据。
 
-更早宽范围候选的容器生命周期、Registry 和全业务结果属于历史调查，不纳入本次最小适配的验收结论。
+原生颜色编辑器保留GTK的横向滚动布局。手机输出的默认输入区矩形为x247、宽111，右缘358超过356宽的滚动区2px；色值首尾光标位于x247和x297，均可见。沿既有滚动条移动后，完整输入区位于x201、宽111并严格落在视口内。此处没有把原始边缘裁切改写成默认整框自动适配，也没有更改几何容差。
 
-## Pixel 2 待验项目
+## 真实 Docker 终端
 
-Pixel 2 的 295% 缩放、Adreno/Freedreno、Plasma Keyboard 中文输入与候选窗、触屏、旋转、Portal、休眠恢复、实际 Docker 29.9.2 工作负载、RSS/PSS 及电量仍需实机验证。具体操作见[设备验收表](device-acceptance.md)。
+开发阶段的真实daemon为Docker29.9.3，API1.56，独立socket是 `/run/pods-ui-terminal.sock`，权限为0660、所有者root、组1000。辅助脚本离线导入客体对应根文件系统，只创建一个专用、无网络的容器；退出时清理该资源并停止daemon。
 
-本轮对 I/O worker 上限 2、stats 并发上限 4、归档匿名磁盘文件及流式传输记录实现与测试结果。尚未测量手机峰值内存或续航；日志窗口和其他既有资源问题继续保留在独立清单，不扩大本次修复范围。
+两后端均验证了VTE commit到shell、触控粘贴入口、选择复制、五个辅助键的精确输入字节，以及Ctrl+C终止前台sleep。五种视口下，容器 `stty size` 与VTE实际行列完全一致：30×39、30×40、14×72、10×40、40×113，分别对应上述五个常规视口。原有terminal commit和会话结束逻辑没有修改。复现命令与证据边界见[Docker记录](testing-docker.md)和[QEMU说明](testing-qemu.md)。
+
+## 原生包与最终提交
+
+r2的完整原生x86_64/aarch64构建、匹配APK校验与ARM64 Wayland验收正在进行。最终记录将给出精确源码提交、CI链接、制品ID、安装包与公钥指纹、实际安装结果及固定源码APKBUILD校验；当前不以r1制品替代r2验证。
+
+## Pixel 2 实机待验
+
+实际目标仍为用户提供的walleye、4GiB RAM、aarch64 musl、4KiB页、Plasma Mobile/KWin Wayland及本机Docker29.9.2。295%缩放、Adreno/Freedreno、真实触屏、Plasma Keyboard显示/隐藏与中文preedit、旋转、Portal、休眠恢复、手机RSS/PSS和耗电需要实机记录。
+
+原生包与模拟机验证覆盖可以在当前环境执行的源码、依赖、布局、焦点、导航、Wayland协议路径和隔离daemon输入。设备验收步骤见[Pixel 2表](device-acceptance.md)；QEMU的软件渲染耗时不用于推断手机性能。

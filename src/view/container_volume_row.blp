@@ -1,4 +1,5 @@
 using Gtk 4.0;
+using Adw 1;
 
 menu menu {
   section {
@@ -36,37 +37,42 @@ template $PdsContainerVolumeRow: ListBoxRow {
     Box {
       spacing: 6;
 
-      Box {
-        hexpand: true;
-        valign: center;
-        orientation: vertical;
-        spacing: 3;
+      Adw.WrapBox {
+        child-spacing: 6;
+        line-spacing: 6;
 
-        Label name_label {
-          use-markup: true;
-          wrap-mode: word_char;
-          wrap: true;
-          xalign: 0;
-          yalign: 0;
+        Box {
+          hexpand: true;
+          valign: center;
+          orientation: vertical;
+          spacing: 3;
+
+          Label name_label {
+            use-markup: true;
+            wrap-mode: word_char;
+            wrap: true;
+            xalign: 0;
+            yalign: 0;
+          }
+
+          Label {
+            styles [
+              "subtitle",
+            ]
+
+            label: bind $format_path(
+              template.container-volume as <$PdsContainerVolume>.destination,
+              template.container-volume as <$PdsContainerVolume>.rw,
+              template.container-volume as <$PdsContainerVolume>.mode
+              ) as <string>;
+            wrap: true;
+            wrap-mode: word_char;
+            xalign: 0;
+          }
         }
 
-        Label {
-          styles [
-            "subtitle",
-          ]
-
-          label: bind $format_path(
-            template.container-volume as <$PdsContainerVolume>.destination,
-            template.container-volume as <$PdsContainerVolume>.rw,
-            template.container-volume as <$PdsContainerVolume>.mode
-            ) as <string>;
-          wrap: true;
-          wrap-mode: word_char;
-          xalign: 0;
-        }
+        $PdsContainersCountBar containers_count_bar {}
       }
-
-      $PdsContainersCountBar containers_count_bar {}
 
       MenuButton {
         styles [

@@ -1,6 +1,6 @@
 # 本机 Docker 与资源开销验证
 
-这些测试只验证本次移动适配直接修改的连接、权限、请求并发和上传内存路径。它们调用 Pods 的实际 Rust engine 代码。完整窗口、Wayland、触屏和键盘验收见[设备验收表](device-acceptance.md)；上游已有业务问题见[独立问题清单](upstream-issues.md)。
+这些测试验证本次移动适配的连接、权限、请求并发、上传内存路径和终端辅助输入。它们调用 Pods 的实际 Rust engine 代码。原生窗口与Wayland验证见[QEMU记录](testing-qemu.md)，实际触屏和键盘验收见[设备验收表](device-acceptance.md)；上游已有业务问题见[独立问题清单](upstream-issues.md)。
 
 ## Unix socket 契约测试
 
@@ -47,9 +47,19 @@ rootless 服务可把环境变量设为 `unix://$XDG_RUNTIME_DIR/docker.sock`。
 
 Alpine 的现有进程列表功能还需要宿主 `procps-ng` 的 `ps`，原生 APK 已声明该依赖。这个只读连接测试不调用进程列表；安装与完整应用功能验收按设备验收表记录。
 
-## 源 C 的最终结果
+## 隔离客体中的真实终端
 
-最终产品源码为 `20ed3a2f6ced56710d8c3588c238b61e66d90f99`，原生包版本 `3.3.0_git20261124-r1`。[Native Alpine CI](https://github.com/Mr-Metatron/pods/actions/runs/45345743799) 的原生 x86_64 与 aarch64 构建、安装和普通用户契约测试全部通过，每架构 12 passed。x86_64 的真实 Docker 28.0.4 只读 smoke 通过，读取到 1 个容器、7 个镜像、0 个卷；没有修改这些资源。
+`tests/qemu/guest-terminal-tests.sh` 在没有网络接口的完整系统客体内启动专用 Docker daemon，离线导入匹配架构的 Alpine 根文件系统，再创建一个专用容器。它只使用 `/run/pods-ui-terminal.sock`，不会选择宿主或用户现有 daemon。测试结束时移除自建资源并停止 daemon。具体准备与选择命令见[QEMU运行说明](testing-qemu.md#connected-terminal-check)。
+
+移动纠正轮的x86_64开发构建在Docker29.9.3、普通UID1000下通过X11与原生Wayland两组检查，分别用时18.01秒和17.29秒。专用socket权限为 `0660 root:1000`。这些结果使用第4次开发构建的冻结源码快照；最终固定源码与ARM64制品结果另见[总报告](verification.md)。
+
+测试经真实VTE commit把命令发送到容器shell，验证触控粘贴按钮和选区复制；五个辅助键在容器raw模式下由 `od` 核对精确字节，Ctrl+C另验证终止前台sleep。五种视口下，容器 `stty size` 与VTE实际行列一致：360×651为30×39、366×651为30×40、651×366为14×72、366×300为10×40、1024×768为40×113。两个后端各保留7张截图和实际终端文本，证据位于 `build-env/qemu-x86/mobile-ui-live4/`。
+
+这项检查覆盖现有exec连接和本次触屏辅助入口。原有terminal commit与会话退出逻辑保持不变；真实手机的中文preedit、软键盘显示/隐藏和触屏事件交付仍需实机验证。
+
+## 源 C / r1 的历史结果
+
+该轮产品源码为 `20ed3a2f6ced56710d8c3588c238b61e66d90f99`，原生包版本 `3.3.0_git20261124-r1`。[Native Alpine CI](https://github.com/Mr-Metatron/pods/actions/runs/45345743799) 的原生 x86_64 与 aarch64 构建、安装和普通用户契约测试全部通过，每架构 12 passed。x86_64 的真实 Docker 28.0.4 只读 smoke 通过，读取到 1 个容器、7 个镜像、0 个卷；没有修改这些资源。
 
 同一 aarch64 制品随后在独立 ARM64 完整系统 QEMU 中安装和运行，客体使用 Linux 6.18.60-0-virt、4096 字节页。UID 1000 的契约测试为 12 passed（0.47 秒），包括实际权限拒绝；真实隔离 Docker 29.9.3 的只读 smoke 为 1 passed（0.29 秒），读取到三类资源均为零。两个 harness 的 SHA-256 为：
 
@@ -76,7 +86,7 @@ engine_live     2be6401bb562c42768d5ce77a48648db6ade7c945b7bd0f1fa57852cf20aa808
 
 源 A 的原生 aarch64 测试制品也在独立 ARM64 完整系统 QEMU 中通过相同的 12 项契约与 Docker 29.9.3 只读 smoke。记录在 `build-env/qemu-arm64/preflight-A-evidence/`；该轮只用于检查 ARM64 内核、普通用户权限和 daemon 环境，没有安装 A 的 APK 或测试完整 GUI。
 
-A 至 C 的 `src/engine`、`src/model` 和 `src/rt.rs` 没有差异；最终交付使用 C 的匹配原生制品重新验证，结果列于上节与[总报告](verification.md)。Pixel 2 实机结果单独记录。
+A 至 C 的 `src/engine`、`src/model` 和 `src/rt.rs` 没有差异；r1交付使用 C 的匹配原生制品重新验证；当前纠正轮结果见[总报告](verification.md)。Pixel 2 实机结果单独记录。
 
 ## 结果记录
 

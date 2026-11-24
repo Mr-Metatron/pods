@@ -2,11 +2,10 @@
 //!
 //! Run under a display server with GSETTINGS_BACKEND=memory, an isolated XDG config
 //! directory and the installed schema directory. These checks activate the real main
-//! window, exercise its existing navigation with an isolated model, and instantiate
-//! the changed mobile widgets. A phone's input method and Docker daemon are separate
-//! device acceptance checks.
+//! window and exercise navigation, populated pages, dialogs and mobile widgets
+//! with real models backed by an isolated local HTTP fixture. The phone's actual
+//! input method, touch hardware and graphics driver remain device checks.
 
-use std::os::unix::net::UnixListener;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -22,11 +21,17 @@ use crate::model;
 use crate::view;
 use crate::widget;
 
+mod auxiliary;
+mod fixture;
+mod forms;
+mod pages;
+mod terminal;
+
 fn settle() {
     let context = glib::MainContext::default();
     let until = Instant::now() + Duration::from_millis(150);
     while Instant::now() < until {
-        while context.pending() {
+        while context.pending() && Instant::now() < until {
             context.iteration(false);
         }
         std::thread::sleep(Duration::from_millis(5));
@@ -69,13 +74,76 @@ fn find_id(widget: &impl IsA<gtk::Widget>, id: &str) -> gtk::Widget {
         .unwrap_or_else(|| panic!("missing template child {id}"))
 }
 
+#[track_caller]
+fn wait_for_paint(window: &impl IsA<gtk::Window>) {
+    let window = window.as_ref();
+    let painted = std::rc::Rc::new(std::cell::Cell::new(0));
+    let clock = window.frame_clock().expect("mapped window frame clock");
+    let handler = clock.connect_after_paint({
+        let painted = painted.clone();
+        let window = window.clone();
+        move |clock| {
+            painted.set(painted.get() + 1);
+            if painted.get() < 2 {
+                window.queue_draw();
+                clock.request_phase(gtk::gdk::FrameClockPhase::AFTER_PAINT);
+            }
+        }
+    });
+    let context = glib::MainContext::default();
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(5);
+    let mut longest_dispatch = Duration::ZERO;
+    // Request each frame once. Repeated invalidation while waiting is unnecessary
+    // and can obscure whether GTK is processing layout or the test is redrawing.
+    window.queue_draw();
+    clock.request_phase(gtk::gdk::FrameClockPhase::AFTER_PAINT);
+    while painted.get() < 2 && Instant::now() < deadline {
+        let dispatch_started = Instant::now();
+        context.iteration(false);
+        longest_dispatch = longest_dispatch.max(dispatch_started.elapsed());
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    clock.disconnect(handler);
+    if started.elapsed() > Duration::from_secs(1) {
+        eprintln!(
+            "GTK paint wait at {}: elapsed={:?}, longest dispatch={longest_dispatch:?}, frames={}, mapped={}, size={}x{}",
+            std::panic::Location::caller(),
+            started.elapsed(),
+            painted.get(),
+            window.is_mapped(),
+            window.width(),
+            window.height()
+        );
+    }
+    assert!(
+        painted.get() >= 2,
+        "timed out waiting for GTK layout frames: frames={}, mapped={}, size={}x{}, elapsed={:?}, longest dispatch={longest_dispatch:?}",
+        painted.get(),
+        window.is_mapped(),
+        window.width(),
+        window.height(),
+        started.elapsed()
+    );
+}
+
+#[track_caller]
 fn resize(window: &impl IsA<gtk::Window>, width: i32, height: i32) {
     let window = window.as_ref();
-    let mut requested = (width, height);
+    let mut requested = window.surface().map_or((width, height), |surface| {
+        (
+            width + (surface.width() - window.width()).max(0),
+            height + (surface.height() - window.height()).max(0),
+        )
+    });
     for _ in 0..4 {
         window.set_default_size(requested.0, requested.1);
         window.present();
         settle();
+        // A toplevel can have its new allocation before the split view applies
+        // its breakpoint in the next layout frame. Wait for completed painting
+        // instead of treating the outer size alone as a settled widget tree.
+        wait_for_paint(window);
         let allocated = (window.width(), window.height());
         if allocated == (width, height) {
             return;
@@ -188,6 +256,16 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
     let app = crate::Application::default();
     app.set_flags(gio::ApplicationFlags::NON_UNIQUE);
     app.register(gio::Cancellable::NONE).unwrap();
+    if std::env::var_os("PODS_UI_TEST_COLOR_ONLY").is_some() {
+        let window = adw::Window::builder()
+            .application(&app)
+            .decorated(false)
+            .build();
+        forms::native_color_dialog(&window, &model::ConnectionManager::default(), &directory);
+        window.destroy();
+        app.quit();
+        return;
+    }
     let image_settings = gio::Settings::new(&format!("{}.view.panels.images", config::APP_ID));
     assert_eq!(image_settings.string("sort-attribute").as_str(), "id");
     app.activate();
@@ -215,70 +293,55 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
         .application(&app)
         .decorated(false)
         .build();
-    let manager = model::ConnectionManager::default();
-    let transport_directory = tempfile::tempdir_in(&directory).unwrap();
-    let socket_path = transport_directory.path().join("engine.sock");
-    // Bollard validates the local socket before creating a client. Keep a real
-    // listener alive for the fixture without running or mutating a Docker daemon.
-    let _listener = UnixListener::bind(&socket_path).unwrap();
-    let connection = model::Connection::new(
-        "ui-test",
-        "本机 Docker — a deliberately long connection name",
-        &format!("unix://{}", socket_path.display()),
-        None,
-        &manager,
-    );
-    // A real Client with an isolated, unconnected transport supplies real capabilities
-    // and models. No mutating daemon operations are activated by this UI test.
-    let client: model::Client = glib::Object::builder()
-        .property("connection", &connection)
-        .property(
-            "engine",
-            model::Engine::from(engine::Engine::Docker(
-                bollard::Docker::connect_with_host(connection.url().as_str()).unwrap(),
-            )),
-        )
-        .build();
-    let client_view: view::ClientView = glib::Object::builder().property("client", &client).build();
-    window.set_content(Some(&client_view));
-    let split: adw::NavigationSplitView = find(&client_view);
-    let sidebar: adw::Sidebar = find(&client_view);
-    let panels = find_id(&client_view, "panels_stack")
-        .downcast::<gtk::Stack>()
-        .unwrap();
-    let threshold = adw::LengthUnit::Sp.to_px(668.0, Some(&window.settings()));
-    let boundary = threshold.ceil() as i32;
-    for (width, height) in [
-        (366, 651),
-        (651, 366),
-        (boundary - 1, 366),
-        (boundary, 366),
-        (1024, 768),
-        (366, 300),
-    ] {
-        resize(&window, width, height);
-        // The existing min-width: 668sp condition includes the boundary.
-        assert_eq!(
-            split.is_collapsed(),
-            (client_view.width() as f64) < threshold
-        );
-        sidebar.emit_by_name::<()>("activated", &[&2u32]);
-        settle();
-        assert_eq!(panels.visible_child_name().as_deref(), Some("images"));
-        assert!(split.shows_content());
-        assert_fits(&client_view, &window);
-        assert!(find::<view::ImagesPanel>(&client_view).is_mapped());
-        capture(&window, &directory, &format!("navigation-{width}x{height}"));
-        if split.is_collapsed() {
-            split.activate_action("navigation.pop", None).unwrap();
-            settle();
-            assert!(!split.shows_content());
-            assert!(sidebar.is_mapped());
-            assert_fits(&sidebar, &window);
-        }
+    let fixture = fixture::Fixture::new(&directory);
+    forms::cancel_in_main_window(&main_window, &fixture, &directory);
+    let client = fixture.client();
+    let manager = fixture.manager();
+    let mut failed_sections = Vec::new();
+    let sections: [(&str, fn(&adw::Window, &fixture::Fixture, &Path)); 3] = [
+        ("forms", forms::run),
+        ("auxiliary", auxiliary::run),
+        ("pages", pages::run),
+    ];
+    let selected_section = std::env::var("PODS_UI_TEST_SECTION").ok();
+    if let Some(selected) = &selected_section {
+        assert!(sections.iter().any(|(name, _)| name == selected));
     }
-    println!("Existing sidebar activation and navigation back passed at {threshold}px breakpoint");
+    for (name, check) in sections {
+        if selected_section
+            .as_ref()
+            .is_some_and(|selected| selected != name)
+        {
+            continue;
+        }
+        eprintln!("Starting mobile UI section: {name}");
+        // Preserve each failure's panic output while still exercising the other
+        // independent UI sections. The combined test fails below if any failed.
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            check(&window, &fixture, &directory);
+        }))
+        .is_err()
+        {
+            failed_sections.push(name);
+        }
+        if let Some(dialog) = window.visible_dialog() {
+            dialog.force_close();
+            settle();
+        }
+        window.set_content(gtk::Widget::NONE);
+    }
+    if selected_section.is_some() {
+        assert!(
+            failed_sections.is_empty(),
+            "Mobile UI sections failed: {failed_sections:?}"
+        );
+        window.destroy();
+        main_window.destroy();
+        fixture.assert_requests();
+        return;
+    }
 
+    eprintln!("Starting shared search, terminal controls, suggestions and connection help");
     let buffer = sourceview5::Buffer::new(None::<&gtk::TextTagTable>);
     buffer.set_text("alpha Alpha\n日志一\n日志二\n");
     let source_view = sourceview5::View::with_buffer(&buffer);
@@ -493,7 +556,7 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
     assert!(suggestion.text().ends_with(":latest"));
     assert!(!popover.is_visible());
 
-    let dialog = view::ConnectionCreationDialog::from(&manager);
+    let dialog = view::ConnectionCreationDialog::from(manager);
     for (width, height) in [(366, 651), (366, 300), (651, 366)] {
         resize(&window, width, height);
         dialog.present(Some(&window));
@@ -561,12 +624,17 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
         settle();
     }
 
+    assert!(
+        failed_sections.is_empty(),
+        "Mobile UI sections failed: {failed_sections:?}; see their preceding failure details"
+    );
     println!(
         "GTK simulated viewport checks passed; screenshots: {}",
         directory.display()
     );
     window.destroy();
     main_window.destroy();
+    fixture.assert_requests();
     // Keep the application and synthetic fixture models alive until all windows close.
-    drop((app, client, manager, connection, container));
+    drop((app, fixture, container));
 }

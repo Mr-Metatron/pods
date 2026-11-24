@@ -99,7 +99,7 @@ check_installed() {
         export XDG_CONFIG_HOME="/home/builder/config-$language"
         mkdir -p "$PODS_UI_TEST_OUTPUT" "$XDG_CONFIG_HOME"
         run_logged "/out/logs/ui-$language.txt" \
-            timeout 180 dbus-run-session -- \
+            timeout 600 dbus-run-session -- \
             xvfb-run -a -s '-screen 0 1280x1024x24' \
             "$ui_binary" "$ui_test" --exact --ignored --test-threads=1 --nocapture
     done

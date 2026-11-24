@@ -28,6 +28,12 @@ This is a reviewable packaging candidate. The checkout currently contains
 a complete `APKBUILD` and its matching source archive from a committed revision,
 with the actual SHA-512 checksum.
 
+The committed [APKBUILD](APKBUILD) also provides a downloadable, fixed GitHub
+source revision with a verified checksum. Its matching build and test results
+are identified in the verification report. Copy that recipe to an aport
+directory to build the pinned candidate, or use the helper below for another
+committed revision.
+
 The two-line `images.sort-attribute` schema correction is the explicitly
 approved startup-blocker exception, tracked as M-STARTUP. It aligns the schema
 with the existing `id` enum value. See [the upstream issue record](../../docs/mobile/upstream-issues.md).
@@ -124,10 +130,18 @@ Docker's process listing invokes `ps` on the daemon host. The package includes
 Pods, including CPU percentage. For a remote Docker connection, install procps
 on the daemon host as well; the client's copy does not provide the remote `ps`.
 
-The desktop session should provide a Secret Service for saved registry
-credentials and a file chooser portal. On Plasma, use the session's existing
-KDE portal and credential service. Local Docker socket connections do not need
-registry credentials stored in a keyring.
+Pods uses the existing `ashpd` OpenFileRequest/SaveFileRequest path for file
+selection. The package declares `xdg-desktop-portal`; the desktop session must
+also provide its matching file chooser backend. On Plasma Mobile, use the
+session's existing `xdg-desktop-portal-kde`. The supplied device specification
+already includes portal 1.21.2 and the KDE 6.6.6 backend. Other desktops retain
+their own backend; the package does not select or configure one globally.
+These are native desktop services and do not require Flatpak. File selection
+and cancellation through the phone's KDE portal remain device acceptance items.
+
+The desktop session should also provide a Secret Service for saved registry
+credentials. Use the session's existing credential service. Local Docker socket
+connections do not need registry credentials stored in a keyring.
 
 ## Pixel 2 verification
 

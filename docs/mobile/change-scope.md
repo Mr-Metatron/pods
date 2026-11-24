@@ -9,6 +9,9 @@
 | M-LOCAL | `engine/socket.rs`、`engine/mod.rs` | 选择本机 Docker 地址；在既有识别流程前保留 Unix socket 的实际访问错误。引擎 API 与版本处理不变 |
 | M-LOCAL | `view/connection_creation_dialog.rs` 与 Blueprint | 动态显示并选择发现的本地 Docker socket；连接名、已有连接和原连接流程保持上游逻辑 |
 | M-LOCAL、M-LAYOUT | `view/connection.rs`、`connections_sidebar.rs`、`window.rs`、`view/mod.rs` | 用既有 Adw.AlertDialog 显示可读的持久连接错误；不修改权限、用户组或 daemon |
+| M-LAYOUT | `view/client_view.blp` | 双栏展开阈值从668sp提高到720sp；原边界小于实际子控件最小宽，导致右侧按钮裁切。折叠导航、选择与返回逻辑不变 |
+| M-LAYOUT | `view/image_row.blp`、`volume_row.blp`、`container_volume_row.blp` | 仅将名称/标签与状态计数的内部横排改为已有的 Adw.WrapBox；长名称在手机上取得完整可用宽，短内容和桌面仍可并排；操作与计数模型不变 |
+| M-LAYOUT | `view/container_create_opts_dialog.blp` | 创建容器的三页 ToggleGroup 按标题所需宽度分配空间，取消等宽限制；360/366宽的 Integration 标题完整显示。标题、页面绑定和字段逻辑不变 |
 | M-LAYOUT、M-INPUT | 连接对话框 Blueprint | 为帮助内容增加滚动和换行；显示目标平台服务及权限说明；设置 URL 输入语义 |
 | M-LAYOUT、M-INPUT | `widget/source_view_search_widget.blp`、`text_search_entry` | 窄栏收起搜索选项至 Popover，宽栏恢复原开关；复用现有搜索属性 |
 | M-INPUT | `widget/suggestion_entry_row.blp` | 建议弹层按内容高度收缩并滚动；建议获取、过滤和选择逻辑保持不变 |
@@ -18,7 +21,7 @@
 | M-NATIVE | `packaging/alpine`、`build-aux/prepare-alpine.py`、`src/meson.build`、README | 原生 APK、固定提交与源码校验、目标平台依赖、离线构建；Meson 只增加 `--locked` |
 | M-LOCALE | `po/zh_Hans.po`、APKBUILD | 只翻译本轮新增字符串；APK 将已有 catalog 映射到 zh_CN |
 | M-STARTUP | `data/com.github.marhkb.Pods.gschema.xml.in` | 用户于2026-11-24单独批准：只把 images.sort-attribute 的 choice/default 从 name 改为 id，共两行 |
-| M-VERIFY、M-STARTUP | native workflow、`ci-alpine.sh`、`ui_tests.rs`、`main.rs`、两个 engine harness、QEMU helpers | 验证适配控件、权限、传输和原生安装，以及批准修复后的完整启动和既有导航；`main.rs` 只增加测试模块声明 |
+| M-VERIFY、M-STARTUP | native workflow、`ci-alpine.sh`、`ui_tests.rs` 与子模块、`main.rs`、两个 engine harness、QEMU helpers | 验证适配控件、权限、传输和原生安装；扩充真实组件的非空列表、详情、表单、导航、输入和独立弹窗场景。隔离 Docker 中另测终端输入与缩放；`main.rs` 只增加测试模块声明 |
 
 `Cargo.toml` 的新增直接依赖为已经存在于上游锁文件的 Hyper 0.14 和 tempfile，分别用于保持 Podman 的流上传类型和匿名临时文件。Tokio 的 net、tokio-util 的 io feature 服务于上述 socket 和文件传输。锁文件中 335 个包的名称、版本、来源和 checksum 与基线相同。
 
@@ -48,6 +51,8 @@ src/view/welcome_page.blp
 其他同时包含合法适配的文件按代码块回退：例如终端只保留辅助输入入口，上传只替换存储和传输载体。`src/log_buffer.rs`、`build-aux/cargo-build.py` 及其测试已删除。仓库内广泛 Docker/Registry 业务测试已缩减为适配路径与只读连接测试。
 
 ## 验证与审批边界
+
+直接影响手机竖屏、触屏、导航、弹窗和输入的既有 UI 问题，依据最初需求纳入适配。是否修改由实际失败决定；未复现的候选保留原实现。完成更多页面的检查不要求更多页面都产生补丁，测试范围也不限定为已有补丁所触及的控件。
 
 验证记录分别见 [Docker 与资源路径](testing-docker.md)、[QEMU 与控件](testing-qemu.md)和[Pixel 2 待验项目](device-acceptance.md)。先前宽范围候选的通过结果属于历史调查，当前工作树单独验证。
 

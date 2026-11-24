@@ -88,6 +88,32 @@
       "M-VERIFY",
       "M-STARTUP"
     ],
+    "src/ui_tests/auxiliary.rs": [
+      "M-LAYOUT",
+      "M-INPUT",
+      "M-VERIFY"
+    ],
+    "src/ui_tests/fixture.rs": [
+      "M-VERIFY"
+    ],
+    "src/ui_tests/forms.rs": [
+      "M-LAYOUT",
+      "M-INPUT",
+      "M-VERIFY"
+    ],
+    "src/ui_tests/pages.rs": [
+      "M-LAYOUT",
+      "M-INPUT",
+      "M-VERIFY"
+    ],
+    "src/ui_tests/terminal.rs": [
+      "M-LAYOUT",
+      "M-INPUT",
+      "M-VERIFY"
+    ],
+    "src/view/client_view.blp": [
+      "M-LAYOUT"
+    ],
     "src/view/connection.rs": [
       "M-LOCAL",
       "M-LAYOUT"
@@ -105,6 +131,9 @@
       "M-LOCAL",
       "M-LAYOUT"
     ],
+    "src/view/container_create_opts_dialog.blp": [
+      "M-LAYOUT"
+    ],
     "src/view/container_terminal.rs": [
       "M-INPUT"
     ],
@@ -115,8 +144,17 @@
     "src/view/container_terminal_page.rs": [
       "M-INPUT"
     ],
+    "src/view/container_volume_row.blp": [
+      "M-LAYOUT"
+    ],
+    "src/view/image_row.blp": [
+      "M-LAYOUT"
+    ],
     "src/view/mod.rs": [
       "M-LOCAL"
+    ],
+    "src/view/volume_row.blp": [
+      "M-LAYOUT"
     ],
     "src/view/window.rs": [
       "M-LOCAL",
@@ -147,6 +185,10 @@
       "M-VERIFY"
     ],
     "tests/qemu/guest-init.sh": [
+      "M-VERIFY"
+    ],
+    "tests/qemu/guest-terminal-tests.sh": [
+      "M-INPUT",
       "M-VERIFY"
     ],
     "tests/qemu/guest-ui-tests.sh": [
