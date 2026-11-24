@@ -93,6 +93,7 @@ mod volumes_prune_opts_dialog;
 mod welcome_page;
 mod window;
 
+pub(crate) use self::connection::show_connection_error;
 pub(crate) use self::connection::show_ongoing_actions_warning_dialog;
 pub(crate) use self::container::container_status_css_class;
 pub(crate) use self::pod::pod_status_css_class;

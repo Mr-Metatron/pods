@@ -10,6 +10,8 @@ use futures::stream::BoxStream;
 
 use crate::engine;
 
+const MAX_STATS_REQUESTS: usize = 4;
+
 pub enum Containers {
     Docker(bollard::Docker),
     Podman(podman_api::api::Containers),
@@ -153,9 +155,12 @@ impl Containers {
                         }
                     };
 
+                    // Do not retain CPU counters for containers that have stopped or
+                    // disappeared. A resumed container starts with a fresh sample.
+                    let mut previous_cpu_stats = std::mem::take(&mut last_cpu_stats);
                     let stats_futures = containers.into_iter().filter_map(|container| {
                         let id = container.id?;
-                        let prev_cpu_stats = last_cpu_stats.remove(&id);
+                        let prev_cpu_stats = previous_cpu_stats.remove(&id);
 
                         Some(async move {
                             let mut stats_stream = docker.stats(
@@ -185,7 +190,9 @@ impl Containers {
                         })
                     });
 
-                    let successful_stats = futures::future::join_all(stats_futures)
+                    let successful_stats = stream::iter(stats_futures)
+                        .buffer_unordered(MAX_STATS_REQUESTS)
+                        .collect::<Vec<_>>()
                         .await
                         .into_iter()
                         .filter_map(|r| r.inspect_err(|e| log::warn!("{e}")).ok())

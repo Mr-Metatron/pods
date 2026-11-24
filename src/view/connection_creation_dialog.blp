@@ -99,6 +99,7 @@ template $PdsConnectionCreationDialog: Adw.Dialog {
 
               Adw.ActionRow podman_unix_socket_url_row {
                 title: _("Podman Unix Socket");
+                subtitle-lines: 2;
                 activatable-widget: podman_unix_socket_radio_button;
 
                 [prefix]
@@ -124,114 +125,129 @@ template $PdsConnectionCreationDialog: Adw.Dialog {
                   valign: center;
 
                   popover: Popover {
-                    Box {
-                      orientation: vertical;
-                      spacing: 12;
-                      margin-top: 12;
-                      margin-end: 9;
-                      margin-bottom: 30;
-                      margin-start: 9;
-
-                      Label {
-                        styles [
-                          "title-3",
-                        ]
-
-                        label: _("Podman Socket Activation");
-                        margin-bottom: 3;
-                      }
-
-                      Label {
-                        label: _(
-                          "To connect to the local Podman instance, the systemd socket must be enabled. You can enable it permanently by issuing the following command:"
-                        );
-                        max-width-chars: 1;
-                        wrap: true;
-                        wrap-mode: word_char;
-                        xalign: 0;
-                      }
+                    ScrolledWindow {
+                      hscrollbar-policy: never;
+                      max-content-height: 220;
+                      propagate-natural-height: true;
 
                       Box {
-                        styles [
-                          "card",
-                          "frame",
-                          "linked",
-                          "view",
-                        ]
-
+                        orientation: vertical;
                         spacing: 12;
-                        overflow: hidden;
+                        margin-top: 12;
+                        margin-end: 9;
+                        margin-bottom: 30;
+                        margin-start: 9;
 
                         Label {
                           styles [
-                            "monospace",
+                            "title-3",
                           ]
 
-                          label: "$";
-                          xalign: 0;
-                          margin-start: 9;
+                          label: _("Podman Socket Activation");
+                          margin-bottom: 3;
+                          max-width-chars: 26;
+                          wrap: true;
+                          wrap-mode: word_char;
                         }
 
-                        Label podman_socket_activation_command_label {
-                          styles [
-                            "monospace",
-                          ]
-
-                          label: "systemctl --user enable --now podman.socket";
-                          selectable: true;
-                          hexpand: true;
+                        Label {
+                          label: _(
+                            "To connect to the local Podman instance, the systemd socket must be enabled. You can enable it permanently by issuing the following command:"
+                          );
+                          max-width-chars: 1;
+                          wrap: true;
+                          wrap-mode: word_char;
                           xalign: 0;
                         }
 
-                        Button {
+                        Box {
                           styles [
-                            "flat",
+                            "card",
+                            "frame",
+                            "linked",
+                            "view",
                           ]
 
-                          action-name: "connection-creation-dialog.copy-podman-socket-activation-command";
-                          icon-name: "edit-copy-symbolic";
-                          tooltip-text: _("Copy to Clipboard");
+                          spacing: 12;
+                          overflow: hidden;
 
-                          accessibility {
-                            label: _("Copy to Clipboard");
+                          Label {
+                            styles [
+                              "monospace",
+                            ]
+
+                            label: "$";
+                            xalign: 0;
+                            margin-start: 9;
+                          }
+
+                          Label podman_socket_activation_command_label {
+                            styles [
+                              "monospace",
+                            ]
+
+                            label: "systemctl --user enable --now podman.socket";
+                            selectable: true;
+                            hexpand: true;
+                            max-width-chars: 26;
+                            wrap: true;
+                            wrap-mode: word_char;
+                            xalign: 0;
+                          }
+
+                          Button {
+                            styles [
+                              "flat",
+                            ]
+
+                            action-name: "connection-creation-dialog.copy-podman-socket-activation-command";
+                            icon-name: "edit-copy-symbolic";
+                            tooltip-text: _("Copy to Clipboard");
+
+                            accessibility {
+                              label: _("Copy to Clipboard");
+                            }
                           }
                         }
-                      }
 
-                      Label {
-                        label: _(
-                          "You may have to restart Pods for it to be able to connect to a newly created socket."
-                        );
-                        max-width-chars: 1;
-                        margin-top: 3;
-                        wrap: true;
-                        wrap-mode: word_char;
-                        xalign: 0;
-                      }
+                        Label {
+                          label: _(
+                            "You may have to restart Pods for it to be able to connect to a newly created socket."
+                          );
+                          max-width-chars: 1;
+                          margin-top: 3;
+                          wrap: true;
+                          wrap-mode: word_char;
+                          xalign: 0;
+                        }
 
-                      Label podman_socket_url_label {
-                        margin-top: 3;
-                        xalign: 0;
-                      }
+                        Label podman_socket_url_label {
+                          margin-top: 3;
+                          max-width-chars: 1;
+                          wrap: true;
+                          wrap-mode: word_char;
+                          xalign: 0;
+                        }
 
-                      Label {
-                        label: _(
-                          "To connect to the local root Podman instance, create a custom connection (read the hints there)."
-                        );
-                        max-width-chars: 1;
-                        margin-top: 3;
-                        wrap: true;
-                        wrap-mode: word_char;
-                        xalign: 0;
+                        Label {
+                          label: _(
+                            "To connect to the local root Podman instance, create a custom connection (read the hints there)."
+                          );
+                          max-width-chars: 1;
+                          margin-top: 3;
+                          wrap: true;
+                          wrap-mode: word_char;
+                          xalign: 0;
+                        }
                       }
                     }
                   };
                 }
               }
 
-              Adw.ActionRow {
+              Adw.ActionRow docker_unix_socket_url_row {
                 title: _("Docker Unix Socket");
-                subtitle: "unix:///var/run/docker.sock";
+                subtitle-lines: 2;
                 activatable-widget: docker_unix_socket_radio_button;
 
                 [prefix]
@@ -256,89 +272,111 @@ template $PdsConnectionCreationDialog: Adw.Dialog {
                   valign: center;
 
                   popover: Popover {
-                    Box {
-                      orientation: vertical;
-                      spacing: 12;
-                      margin-top: 12;
-                      margin-end: 9;
-                      margin-bottom: 30;
-                      margin-start: 9;
-
-                      Label {
-                        styles [
-                          "title-3",
-                        ]
-
-                        label: _("Docker Socket Activation");
-                        margin-bottom: 3;
-                      }
-
-                      Label {
-                        label: _(
-                          "To connect to the local Docker instance, the systemd socket must be enabled. You can enable it permanently by issuing the following command:"
-                        );
-                        max-width-chars: 1;
-                        wrap: true;
-                        wrap-mode: word_char;
-                        xalign: 0;
-                      }
+                    ScrolledWindow {
+                      hscrollbar-policy: never;
+                      max-content-height: 220;
+                      propagate-natural-height: true;
 
                       Box {
-                        styles [
-                          "card",
-                          "frame",
-                          "linked",
-                          "view",
-                        ]
-
+                        orientation: vertical;
                         spacing: 12;
-                        overflow: hidden;
+                        margin-top: 12;
+                        margin-end: 9;
+                        margin-bottom: 30;
+                        margin-start: 9;
 
                         Label {
                           styles [
-                            "monospace",
+                            "title-3",
                           ]
 
-                          label: "$";
-                          xalign: 0;
-                          margin-start: 9;
+                          label: _("Docker Socket Access");
+                          margin-bottom: 3;
+                          max-width-chars: 26;
+                          wrap: true;
+                          wrap-mode: word_char;
                         }
 
-                        Label docker_socket_activation_command_label {
-                          styles [
-                            "monospace",
-                          ]
-
-                          label: "sudo systemctl enable --now docker.socket";
-                          selectable: true;
-                          hexpand: true;
+                        Label {
+                          label: _(
+                            "Start Docker before connecting. On a systemd system, an administrator can enable the service with:"
+                          );
+                          max-width-chars: 1;
+                          wrap: true;
+                          wrap-mode: word_char;
                           xalign: 0;
                         }
 
-                        Button {
+                        Box {
                           styles [
-                            "flat",
+                            "card",
+                            "frame",
+                            "linked",
+                            "view",
                           ]
 
-                          action-name: "connection-creation-dialog.copy-docker-socket-activation-command";
-                          icon-name: "edit-copy-symbolic";
-                          tooltip-text: _("Copy to Clipboard");
+                          spacing: 12;
+                          overflow: hidden;
 
-                          accessibility {
-                            label: _("Copy to Clipboard");
+                          Label {
+                            styles [
+                              "monospace",
+                            ]
+
+                            label: "$";
+                            xalign: 0;
+                            margin-start: 9;
+                          }
+
+                          Label docker_socket_activation_command_label {
+                            styles [
+                              "monospace",
+                            ]
+
+                            label: "systemctl enable --now docker.service";
+                            selectable: true;
+                            hexpand: true;
+                            max-width-chars: 26;
+                            wrap: true;
+                            wrap-mode: word_char;
+                            xalign: 0;
+                          }
+
+                          Button {
+                            styles [
+                              "flat",
+                            ]
+
+                            action-name: "connection-creation-dialog.copy-docker-socket-activation-command";
+                            icon-name: "edit-copy-symbolic";
+                            tooltip-text: _("Copy to Clipboard");
+
+                            accessibility {
+                              label: _("Copy to Clipboard");
+                            }
                           }
                         }
-                      }
 
-                      Label {
-                        label: _(
-                          "You may have to restart Pods for it to be able to connect to a newly created socket."
-                        );
-                        max-width-chars: 1;
-                        margin-top: 3;
-                        wrap: true;
-                        wrap-mode: word_char;
-                        xalign: 0;
+                        Label {
+                          label: _(
+                            "On Alpine systems using OpenRC, an administrator can start Docker with rc-service docker start. For rootless Docker, start the user's Docker service; the socket is normally $XDG_RUNTIME_DIR/docker.sock."
+                          );
+                          max-width-chars: 1;
+                          margin-top: 3;
+                          wrap: true;
+                          wrap-mode: word_char;
+                          xalign: 0;
+                        }
+
+                        Label {
+                          label: _(
+                            "Run Pods as your regular user. Access to a system Docker socket is normally granted through the docker group. This grants root-level control of the device. Log out and back in after a group change; keep the socket restricted to authorized users."
+                          );
+                          max-width-chars: 1;
+                          wrap: true;
+                          wrap-mode: word_char;
+                          xalign: 0;
+                        }
                       }
                     }
                   };
@@ -349,6 +387,8 @@ template $PdsConnectionCreationDialog: Adw.Dialog {
                 entry-activated => $on_custom_url_entry_row_activated() swapped;
                 changed => $on_custom_url_entry_row_changed() swapped;
                 title: _("Custom URL");
+                input-purpose: url;
+                input-hints: no_spellcheck;
 
                 [prefix]
                 CheckButton custom_url_radio_button {

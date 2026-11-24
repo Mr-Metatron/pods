@@ -1,36 +1,52 @@
 using Gtk 4.0;
+using Adw 1;
 
 template $PdsSourceViewSearchWidget: Widget {
   layout-manager: BinLayout {};
 
-  Box {
-    styles [
-      "linked",
-    ]
+  Adw.BreakpointBin {
+    height-request: 34;
+    width-request: 180;
 
-    halign: center;
+    Adw.Breakpoint {
+      condition ("max-width: 500sp")
 
-    $PdsTextSearchEntry search_entry {}
-
-    Button {
-      action-name: "source-view-search-widget.search-backward";
-      icon-name: "go-up-symbolic";
-      tooltip-text: _("Previous Match (Ctrl+Shift+G)");
-
-      accessibility {
-        label: _("Previous Match");
-        key-shortcuts: "Control+Shift+G";
+      setters {
+        search_entry.compact: true;
       }
     }
 
-    Button {
-      action-name: "source-view-search-widget.search-forward";
-      tooltip-text: _("Next Match (Ctrl+G)");
-      icon-name: "go-down-symbolic";
+    Box {
+      styles [
+        "linked",
+      ]
 
-      accessibility {
-        label: _("Next Match");
-        key-shortcuts: "Control+G";
+      halign: center;
+
+      $PdsTextSearchEntry search_entry {
+        hexpand: true;
+      }
+
+      Button {
+        action-name: "source-view-search-widget.search-backward";
+        icon-name: "go-up-symbolic";
+        tooltip-text: _("Previous Match (Ctrl+Shift+G)");
+
+        accessibility {
+          label: _("Previous Match");
+          key-shortcuts: "Control+Shift+G";
+        }
+      }
+
+      Button {
+        action-name: "source-view-search-widget.search-forward";
+        tooltip-text: _("Next Match (Ctrl+G)");
+        icon-name: "go-down-symbolic";
+
+        accessibility {
+          label: _("Next Match");
+          key-shortcuts: "Control+G";
+        }
       }
     }
   }

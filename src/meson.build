@@ -72,20 +72,27 @@ run_command(
   check: true,
 )
 
-cargo_options = ['--manifest-path', meson.project_source_root() / 'Cargo.toml']
+cargo_options = ['--locked', '--manifest-path', meson.project_source_root() / 'Cargo.toml']
 cargo_options += ['--target-dir', meson.project_build_root() / 'src']
+
+if get_option('cargo-offline')
+  cargo_options += ['--offline']
+endif
+
+if get_option('cargo-target') != ''
+  cargo_options += ['--target', get_option('cargo-target')]
+endif
 
 if get_option('profile') == 'default'
   cargo_options += ['--release']
-  rust_target = 'release'
   message('Building in release mode')
 else
-  rust_target = 'debug'
   message('Building in debug mode')
 endif
 
-cargo_env = ['CARGO_HOME=' + meson.project_build_root() / 'cargo-home']
-
+# Keep the caller's Cargo home, target configuration and linker environment.
+# Distribution builders fetch dependencies in prepare() and reuse that cache
+# with cargo-offline=true during build() and check().
 custom_target(
   'cargo-build',
   build_by_default: true,
@@ -96,35 +103,39 @@ custom_target(
   install_dir: bindir,
   depends: resources,
   command: [
-    'env',
-    cargo_env,
+    python,
+    files('../build-aux/cargo-build.py'),
     cargo,
-    'build',
-    cargo_options,
-    '&&',
-    'cp',
-    'src' / rust_target / meson.project_name(),
     '@OUTPUT@',
+    cargo_options,
   ],
 )
 
-cargo = find_program('cargo', required: true)
-cargo_target_dir = meson.project_build_root() / 'target'
-cargo_home = meson.project_build_root() / 'cargo-home'
-manifest_path = meson.project_source_root() / 'Cargo.toml'
 test(
-  'clippy',
+  'cargo-test',
   cargo,
-  args: [
-    'clippy',
-    '--manifest-path=@0@'.format(manifest_path),
-    '--target-dir=@0@'.format(cargo_target_dir),
-    '--',
-    '-D', 'warnings',
-  ],
-  env: [
-    'CARGO_HOME=@0@'.format(cargo_home),
-    'PATH=/app/bin:/usr/bin:/usr/lib/sdk/llvm22/bin:/usr/lib/sdk/rust-stable/bin',
-  ],
-  timeout: 300, # Give cargo more time
+  args: ['test'] + cargo_options,
+  workdir: meson.project_source_root(),
+  suite: 'unit',
+  # Cargo also compiles the test harnesses here, including GTK bindings when
+  # the distribution's release panic setting differs from the test profile.
+  timeout: 1800,
 )
+
+test(
+  'cargo-build-helper',
+  python,
+  args: files('../tests/test_cargo_build.py'),
+  suite: 'unit',
+)
+
+if get_option('cargo-clippy')
+  test(
+    'clippy',
+    cargo,
+    args: ['clippy'] + cargo_options + ['--', '-D', 'warnings'],
+    workdir: meson.project_source_root(),
+    suite: 'lint',
+    timeout: 600,
+  )
+endif

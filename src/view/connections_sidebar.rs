@@ -107,7 +107,7 @@ mod imp {
                 clone!(
                     #[weak]
                     obj,
-                    move |e| utils::show_error_toast(
+                    move |e| view::show_connection_error(
                         &obj,
                         &gettext("Could not switch connection"),
                         &e.to_string(),

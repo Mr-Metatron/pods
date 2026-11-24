@@ -1,8 +1,10 @@
 pub(crate) mod api;
+pub(crate) mod archive;
 pub(crate) mod auth;
 pub(crate) mod conn;
 pub(crate) mod dto;
 pub(crate) mod opts;
+pub(crate) mod socket;
 
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -38,7 +40,10 @@ pub(crate) enum Engine {
 
 impl Engine {
     pub(crate) async fn new<U: AsRef<str>>(uri: U) -> anyhow::Result<Self> {
-        let docker = bollard::Docker::connect_with_host(uri.as_ref())?;
+        socket::check_local_socket(uri.as_ref()).await?;
+        let docker = bollard::Docker::connect_with_host(uri.as_ref())?
+            .negotiate_version()
+            .await?;
 
         match docker
             .version()

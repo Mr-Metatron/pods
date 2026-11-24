@@ -88,8 +88,12 @@ impl From<DockerContainerStats> for ContainerStats {
             .map(|blkios| {
                 blkios.into_iter().fold((0, 0), |(blkin, blkout), blkio| {
                     match blkio.op.as_deref() {
-                        Some("read") => (blkin + blkio.value.unwrap_or_default(), blkout),
-                        Some("write") => (blkin, blkout + blkio.value.unwrap_or_default()),
+                        Some(op) if op.eq_ignore_ascii_case("read") => {
+                            (blkin + blkio.value.unwrap_or_default(), blkout)
+                        }
+                        Some(op) if op.eq_ignore_ascii_case("write") => {
+                            (blkin, blkout + blkio.value.unwrap_or_default())
+                        }
                         _ => (blkin, blkout),
                     }
                 })
@@ -124,12 +128,16 @@ impl From<DockerContainerStats> for ContainerStats {
                         .map(|online_cpus| online_cpus as f64)
                         .unwrap_or(1.0);
 
-                    Some(((cpu_delta / system_delta) * online_cpus * 100.0).max(0.0))
+                    if system_delta > 0.0 && cpu_delta >= 0.0 {
+                        Some((cpu_delta / system_delta) * online_cpus * 100.0)
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             },
             mem_perc: match (mem_usage, mem_limit) {
-                (Some(mem_usage), Some(mem_limit)) => {
+                (Some(mem_usage), Some(mem_limit)) if mem_limit > 0 => {
                     Some((mem_usage as f64 / mem_limit as f64) * 100.0)
                 }
                 _ => None,
@@ -155,6 +163,59 @@ impl From<podman_api::models::ContainerStats> for ContainerStats {
             net_output: value.net_output,
             block_input: value.block_input,
             block_output: value.block_output,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stats(current: u64, previous: u64, limit: u64) -> ContainerStats {
+        DockerContainerStats {
+            prev_cpu_stats: Some(
+                serde_json::from_value(serde_json::json!({
+                    "cpu_usage": { "total_usage": 100 },
+                    "system_cpu_usage": previous,
+                    "online_cpus": 8,
+                }))
+                .unwrap(),
+            ),
+            stats: serde_json::from_value(serde_json::json!({
+                "cpu_stats": {
+                    "cpu_usage": { "total_usage": 200 },
+                    "system_cpu_usage": current,
+                    "online_cpus": 8,
+                },
+                "memory_stats": { "usage": 512, "limit": limit },
+                "blkio_stats": { "io_service_bytes_recursive": [
+                    { "op": "Read", "value": 64 },
+                    { "op": "Write", "value": 128 },
+                    { "op": "read", "value": 32 },
+                    { "op": "Total", "value": 224 },
+                ] },
+            }))
+            .unwrap(),
+        }
+        .into()
+    }
+
+    #[test]
+    fn converts_docker_cpu_memory_and_block_io() {
+        let stats = stats(2000, 1000, 1024);
+        assert_eq!(stats.cpu, Some(80.0));
+        assert_eq!(stats.mem_perc, Some(50.0));
+        assert_eq!(stats.block_input, Some(96));
+        assert_eq!(stats.block_output, Some(128));
+    }
+
+    #[test]
+    fn skips_invalid_percentages_after_counter_reset_or_zero_limit() {
+        for (current, previous) in [(1000, 1000), (500, 1000)] {
+            let stats = stats(current, previous, 0);
+            assert_eq!(stats.cpu, None);
+            assert_eq!(stats.mem_perc, None);
+            assert_eq!(stats.mem_usage, Some(512));
         }
     }
 }

@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::cell::OnceCell;
 
 use adw::prelude::*;
@@ -9,6 +8,7 @@ use gtk::CompositeTemplate;
 use gtk::gdk;
 use gtk::glib;
 
+use crate::engine;
 use crate::expression::BoolExpressionExt;
 use crate::expression::ExpressionExt;
 use crate::gettext::gettext;
@@ -33,10 +33,9 @@ mod imp {
     #[properties(wrapper_type = super::ConnectionCreationDialog)]
     #[template(resource = "/com/github/marhkb/Pods/ui/view/connection_creation_dialog.ui")]
     pub(crate) struct ConnectionCreationDialog {
+        pub(super) docker_socket_url: OnceCell<String>,
         #[property(get, set, construct_only)]
         pub(super) connection_manager: OnceCell<model::ConnectionManager>,
-        #[template_child]
-        pub(super) toast_overlay: TemplateChild<adw::ToastOverlay>,
         #[template_child]
         pub(super) navigation_view: TemplateChild<adw::NavigationView>,
         #[template_child]
@@ -55,6 +54,10 @@ mod imp {
         pub(super) podman_socket_activation_command_label: TemplateChild<gtk::Label>,
         #[template_child]
         pub(super) podman_socket_url_label: TemplateChild<gtk::Label>,
+        #[template_child]
+        pub(super) docker_unix_socket_url_row: TemplateChild<adw::ActionRow>,
+        #[template_child]
+        pub(super) docker_unix_socket_radio_button: TemplateChild<gtk::CheckButton>,
         #[template_child]
         pub(super) docker_socket_activation_command_label: TemplateChild<gtk::Label>,
         #[template_child]
@@ -148,14 +151,26 @@ mod imp {
             self.podman_unix_socket_url_row
                 .set_subtitle(&utils::unix_socket_url());
 
+            let docker_socket_url = engine::socket::docker_socket_url();
+            self.docker_unix_socket_url_row
+                .set_subtitle(&docker_socket_url);
+
+            if !engine::socket::socket_exists(&utils::unix_socket_url())
+                && engine::socket::socket_exists(&docker_socket_url)
+            {
+                self.docker_unix_socket_radio_button.set_active(true);
+            }
+            self.docker_socket_url.set(docker_socket_url).unwrap();
+
             self.podman_socket_url_label.set_markup(&gettext_f(// Translators: The placeholder '{}' is replaced by 'official documentation'.
                 "Visit the {} for more information.", [format!(
                     "<a href=\"https://github.com/containers/podman/blob/cea9340242f3f6cf41f20fb0b6239aa3db5decd6/docs/tutorials/socket_activation.md\">{}</a>",
                     gettext("official documentation")
                 )]));
 
-            self.custom_url_radio_button
-                .set_active(obj.connection_manager().contains_local_connection());
+            if obj.connection_manager().contains_local_connection() {
+                self.custom_url_radio_button.set_active(true);
+            }
 
             self.color_dialog_button
                 .set_rgba(&gdk::RGBA::new(0.207, 0.517, 0.894, 1.0));
@@ -184,6 +199,7 @@ mod imp {
         #[template_callback]
         fn on_custom_url_entry_row_changed(&self) {
             self.custom_url_radio_button.set_active(true);
+            self.obj().update_actions();
         }
 
         #[template_callback]
@@ -253,14 +269,13 @@ impl ConnectionCreationDialog {
             .connection_manager()
             .try_connect(
                 imp.name_entry_row.text().as_str(),
-                if imp.custom_url_radio_button.is_active() {
-                    Cow::Owned(imp.custom_url_entry_row.text().into())
+                &if imp.custom_url_radio_button.is_active() {
+                    imp.custom_url_entry_row.text().to_string()
                 } else if imp.podman_unix_socket_radio_button.is_active() {
-                    Cow::Owned(utils::unix_socket_url())
+                    utils::unix_socket_url()
                 } else {
-                    Cow::Borrowed("unix:///var/run/docker.sock")
-                }
-                .as_ref(),
+                    imp.docker_socket_url.get().unwrap().clone()
+                },
                 if imp.color_switch.is_active() {
                     Some(imp.color_dialog_button.rgba())
                 } else {
@@ -296,6 +311,6 @@ impl ConnectionCreationDialog {
     }
 
     fn on_error(&self, msg: &str) {
-        utils::show_error_toast(&*self.imp().toast_overlay, &gettext("Error"), msg);
+        view::show_connection_error(self, &gettext("Could Not Connect"), msg);
     }
 }

@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::io::BufWriter;
 use std::io::Write;
 use std::mem;
+use std::rc::Rc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -26,6 +27,10 @@ use sourceview5::prelude::*;
 use crate::engine;
 use crate::expression::ExpressionExt;
 use crate::gettext::gettext;
+use crate::log_buffer::LogBuffer;
+use crate::log_buffer::MAX_LOG_BYTES;
+use crate::log_buffer::MAX_LOG_CHUNK_BYTES;
+use crate::log_buffer::MAX_LOG_LINES;
 use crate::model;
 use crate::rt;
 use crate::utils;
@@ -57,9 +62,12 @@ mod imp {
     pub(crate) struct ContainerLogPage {
         pub(super) settings: utils::PodsSettings,
         pub(super) log_timestamps: RefCell<VecDeque<String>>,
+        pub(super) log_sizes: RefCell<VecDeque<usize>>,
+        pub(super) log_bytes: Cell<usize>,
+        pub(super) follow: RefCell<Option<rt::PipeFinish>>,
         pub(super) fetch_until: OnceCell<String>,
         pub(super) fetch_lines_state: Cell<FetchLinesState>,
-        pub(super) fetched_lines: RefCell<VecDeque<Bytes>>,
+        pub(super) fetched_lines: RefCell<LogBuffer>,
 
         #[property(get, set, construct, nullable)]
         pub(super) container: glib::WeakRef<model::Container>,
@@ -81,6 +89,8 @@ mod imp {
         pub(super) search_widget: TemplateChild<widget::SourceViewSearchWidget>,
         #[template_child]
         pub(super) banner: TemplateChild<adw::Banner>,
+        #[template_child]
+        pub(super) history_limit_banner: TemplateChild<adw::Banner>,
         #[template_child]
         pub(super) stack: TemplateChild<gtk::Stack>,
         #[template_child]
@@ -260,6 +270,12 @@ mod imp {
 
             self.init_log();
         }
+
+        fn dispose(&self) {
+            if let Some(follow) = self.follow.borrow_mut().take() {
+                follow.abort();
+            }
+        }
     }
 
     impl WidgetImpl for ContainerLogPage {}
@@ -308,25 +324,43 @@ mod imp {
         fn follow_log(&self) {
             let obj = &*self.obj();
 
+            if let Some(follow) = self.follow.borrow_mut().take() {
+                follow.abort();
+            }
+
             let Some(api) = obj.container().and_then(|container| container.api()) else {
                 return;
             };
 
             let timestamps = self.log_timestamps.borrow();
-            let mut iter = timestamps.iter().rev();
+            let mut iter = timestamps
+                .iter()
+                .rev()
+                .filter(|timestamp| !timestamp.is_empty());
 
             let mut opts = basic_opts(true, true);
             let skip = match iter.next() {
                 Some(last) => {
-                    opts.since = glib::DateTime::from_iso8601(last, None).unwrap().to_unix();
-                    AtomicUsize::new(iter.take_while(|t| *t == last).count() + 1)
+                    opts.since = glib::DateTime::from_iso8601(last, None)
+                        .map(|date| date.to_unix())
+                        .unwrap_or_default();
+                    // The daemon's `since` cursor has second precision. Include all
+                    // already displayed records in that second, not only equal strings.
+                    AtomicUsize::new(
+                        iter.take_while(|timestamp| {
+                            glib::DateTime::from_iso8601(timestamp, None)
+                                .is_ok_and(|date| date.to_unix() == opts.since)
+                        })
+                        .count()
+                            + 1,
+                    )
                 }
                 None => AtomicUsize::new(0),
             };
 
             let mut perform = MarkupPerform::default();
 
-            rt::Pipe::new(api, move |api| api.logs(opts)).on_next(clone!(
+            let follow = rt::Pipe::new(api, move |api| api.logs(opts)).on_next(clone!(
                 #[weak]
                 obj,
                 #[upgrade_or]
@@ -340,6 +374,7 @@ mod imp {
                     }
                 }
             ));
+            self.follow.replace(Some(follow));
         }
 
         fn append_line(
@@ -365,10 +400,31 @@ mod imp {
         }
 
         fn insert(&self, line: Bytes, perform: &mut MarkupPerform, at_end: bool) {
+            let line = if line.len() > MAX_LOG_CHUNK_BYTES {
+                self.history_limit_banner.set_revealed(true);
+                &line[..MAX_LOG_CHUNK_BYTES]
+            } else {
+                line.as_ref()
+            };
+            let mut lines: Vec<_> = line.split(|byte| *byte == b'\n').collect();
+            if lines.last().is_some_and(|line| line.is_empty()) {
+                lines.pop();
+            }
+            if !at_end {
+                lines.reverse();
+            }
+            for line in lines {
+                self.insert_line(line, perform, at_end);
+            }
+        }
+
+        fn insert_line(&self, line: &[u8], perform: &mut MarkupPerform, at_end: bool) {
             let line_buffer = perform.decode(line.as_ref());
             let (timestamp, log_message) = line_buffer.split_once(' ').unwrap();
 
-            self.fetch_until.get_or_init(|| timestamp.to_owned());
+            if !timestamp.is_empty() {
+                self.fetch_until.get_or_init(|| timestamp.to_owned());
+            }
 
             let source_buffer = &*self.source_buffer;
             source_buffer.insert_markup(
@@ -377,7 +433,7 @@ mod imp {
                 } else {
                     self.source_buffer.start_iter()
                 },
-                &if source_buffer.start_iter() == source_buffer.end_iter() {
+                &if self.log_timestamps.borrow().is_empty() {
                     Cow::Borrowed(log_message)
                 } else if at_end {
                     Cow::Owned(format!("\n{log_message}"))
@@ -387,10 +443,41 @@ mod imp {
             );
 
             let mut timestamps = self.log_timestamps.borrow_mut();
+            let mut sizes = self.log_sizes.borrow_mut();
             if at_end {
                 timestamps.push_back(timestamp.to_owned());
+                sizes.push_back(line.len());
             } else {
                 timestamps.push_front(timestamp.to_owned());
+                sizes.push_front(line.len());
+            }
+            self.log_bytes.set(self.log_bytes.get() + line.len());
+
+            while timestamps.len() > MAX_LOG_LINES || self.log_bytes.get() > MAX_LOG_BYTES {
+                let size = if at_end {
+                    timestamps.pop_front();
+                    let mut start = source_buffer.start_iter();
+                    let mut end = source_buffer
+                        .iter_at_line(1)
+                        .unwrap_or_else(|| source_buffer.end_iter());
+                    source_buffer.delete(&mut start, &mut end);
+                    sizes.pop_front()
+                } else {
+                    timestamps.pop_back();
+                    let mut start = source_buffer
+                        .iter_at_line(timestamps.len() as i32)
+                        .unwrap_or_else(|| source_buffer.end_iter());
+                    start.backward_char();
+                    let mut end = source_buffer.end_iter();
+                    source_buffer.delete(&mut start, &mut end);
+                    sizes.pop_back()
+                };
+                self.log_bytes.set(
+                    self.log_bytes
+                        .get()
+                        .saturating_sub(size.unwrap_or_default()),
+                );
+                self.history_limit_banner.set_revealed(true);
             }
         }
 
@@ -409,7 +496,10 @@ mod imp {
         #[template_callback]
         fn on_timestamps_renderer_query_data(&self, _: &glib::Object, line: u32) {
             if let Some(timestamp) = self.log_timestamps.borrow().get(line as usize) {
-                let date_time = format!("<span foreground=\"#865e3c\">{timestamp}</span>",);
+                let date_time = format!(
+                    "<span foreground=\"#865e3c\">{}</span>",
+                    glib::markup_escape_text(timestamp)
+                );
                 self.timestamps_renderer.set_markup(&date_time);
 
                 let (width, _) = self.timestamps_renderer.measure_markup(&date_time);
@@ -452,12 +542,15 @@ mod imp {
                     };
 
                     self.lines_loading_revealer.set_reveal_child(true);
+                    self.fetch_lines_state.set(FetchLinesState::Fetching);
+                    self.history_limit_banner.set_revealed(true);
 
                     rt::Pipe::new(api, move |api| {
                         api.logs(engine::opts::LogsOpts {
                             until: glib::DateTime::from_iso8601(&until, None)
                                 .unwrap()
                                 .to_unix(),
+                            tail: MAX_LOG_LINES.to_string(),
                             ..basic_opts(false, true)
                         })
                     })
@@ -472,7 +565,9 @@ mod imp {
 
                             match result {
                                 Ok(line) => {
-                                    imp.fetched_lines.borrow_mut().push_back(line.into());
+                                    if imp.fetched_lines.borrow_mut().push_back(line.into()) {
+                                        imp.history_limit_banner.set_revealed(true);
+                                    }
                                     glib::ControlFlow::Continue
                                 }
                                 Err(e) => {
@@ -574,23 +669,30 @@ impl ContainerLogPage {
                 #[weak(rename_to = obj)]
                 self,
                 move |files| {
-                    obj.action_set_enabled(ACTION_SAVE_TO_FILE, false);
-
-                    let file = gio::File::for_uri(files.uris()[0].as_str());
+                    let Some(uri) = files.uris().first() else { return };
+                    let file = gio::File::for_uri(uri.as_str());
 
                     let Some(path) = file.path() else { return };
 
-                    let file = std::fs::OpenOptions::new()
+                    let file = match std::fs::OpenOptions::new()
                         .write(true)
                         .create(true)
                         .truncate(true)
-                        .open(path)
-                        .unwrap();
+                        .open(path) {
+                            Ok(file) => file,
+                            Err(error) => {
+                                utils::show_error_toast(&obj, &gettext("Could not save logs"), &error.to_string());
+                                return;
+                            }
+                        };
 
-                    let mut writer = BufWriter::new(file);
+                    obj.action_set_enabled(ACTION_SAVE_TO_FILE, false);
+                    let writer = Rc::new(RefCell::new(BufWriter::new(file)));
+                    let failed = Rc::new(Cell::new(false));
                     let mut perform = PlainTextPerform::default();
 
-                    let timestamps = files.choices()[0].1 == "true";
+                    let timestamps = files.choices().iter()
+                        .any(|(name, value)| name == "timestamps" && value == "true");
 
                     rt::Pipe::new(container.api().unwrap(), move |container| {
                         container.logs(basic_opts(false, timestamps))
@@ -598,6 +700,10 @@ impl ContainerLogPage {
                     .on_next(clone!(
                         #[weak]
                         obj,
+                        #[strong]
+                        writer,
+                        #[strong]
+                        failed,
                         #[upgrade_or]
                         glib::ControlFlow::Break,
                         move |result: anyhow::Result<engine::conn::TtyChunk>| {
@@ -607,12 +713,13 @@ impl ContainerLogPage {
 
                                     let line = perform.move_out_buffer();
                                     if !line.is_empty() {
+                                        let mut writer = writer.borrow_mut();
                                         match writer
                                             .write_all(line.as_bytes())
-                                            .and_then(|_| writer.write_all(b"\n"))
                                         {
                                             Ok(_) => glib::ControlFlow::Continue,
                                             Err(e) => {
+                                                failed.set(true);
                                                 log::warn!("Error on saving logs: {e}");
                                                 utils::show_error_toast(
                                                     &obj,
@@ -627,6 +734,7 @@ impl ContainerLogPage {
                                     }
                                 }
                                 Err(e) => {
+                                    failed.set(true);
                                     log::warn!("Error on retrieving logs: {e}");
                                     utils::show_error_toast(
                                         &obj,
@@ -643,7 +751,13 @@ impl ContainerLogPage {
                         obj,
                         move || {
                             obj.action_set_enabled(ACTION_SAVE_TO_FILE, true);
-                            utils::show_toast(&obj, gettext("Log has been saved"));
+                            if failed.get() {
+                                return;
+                            }
+                            match writer.borrow_mut().flush() {
+                                Ok(()) => utils::show_toast(&obj, gettext("Log has been saved")),
+                                Err(error) => utils::show_error_toast(&obj, &gettext("Could not save logs"), &error.to_string()),
+                            }
                         }
                     ));
                 }
@@ -783,7 +897,10 @@ impl MarkupPerform {
         self.begin_line();
 
         let line = String::from_utf8_lossy(ansi_encoded_bytes);
-        let (timestamp, message) = line.split_once(' ').unwrap();
+        let (timestamp, message) = line
+            .split_once(' ')
+            .filter(|(timestamp, _)| glib::DateTime::from_iso8601(timestamp, None).is_ok())
+            .unwrap_or(("", &line));
 
         parser.advance(self, message.as_bytes());
 
@@ -795,7 +912,12 @@ impl MarkupPerform {
 
 impl vte::Perform for MarkupPerform {
     fn print(&mut self, c: char) {
-        self.buffer.push(c);
+        match c {
+            '&' => self.buffer.push_str("&amp;"),
+            '<' => self.buffer.push_str("&lt;"),
+            '>' => self.buffer.push_str("&gt;"),
+            _ => self.buffer.push(c),
+        }
     }
 
     fn csi_dispatch(
@@ -819,6 +941,11 @@ impl vte::Perform for MarkupPerform {
                     }
                     _ => {
                         if let Some(attr) = ansi_escape_to_markup_attribute(param) {
+                            // Repeated SGR colour/bold sequences must not grow the
+                            // active attribute stack for the lifetime of a log stream.
+                            self.reset(|old| {
+                                std::mem::discriminant(old) != std::mem::discriminant(&attr)
+                            });
                             self.buffer.push_str(attr.open_tag().as_ref());
                             self.attributes.push(attr);
                         }
@@ -893,5 +1020,43 @@ impl PlainTextPerform {
 impl vte::Perform for PlainTextPerform {
     fn print(&mut self, c: char) {
         self.0.push(c);
+    }
+
+    fn execute(&mut self, byte: u8) {
+        if matches!(byte, b'\n' | b'\r' | b'\t') {
+            self.0.push(char::from(byte));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_or_plain_output_does_not_panic_or_become_markup() {
+        let mut perform = MarkupPerform::default();
+        assert_eq!(perform.decode(b"<tag>&plain"), " &lt;tag&gt;&amp;plain");
+        assert_eq!(
+            perform.decode(b"2026-11-24T05:00:00.000000000Z <tag>&value"),
+            "2026-11-24T05:00:00.000000000Z &lt;tag&gt;&amp;value",
+        );
+        assert_eq!(perform.decode(b""), " ");
+    }
+
+    #[test]
+    fn repeated_terminal_colours_keep_a_bounded_style_stack() {
+        let mut perform = MarkupPerform::default();
+        for _ in 0..10_000 {
+            perform.decode(b"2026-11-24T05:00:00Z \x1b[31mred\x1b[1mbold");
+            assert_eq!(perform.attributes.len(), 2);
+        }
+    }
+
+    #[test]
+    fn exported_logs_preserve_line_breaks_and_tabs() {
+        let mut perform = PlainTextPerform::default();
+        perform.decode(b"one\ntwo\tvalue\r\n\x1b[31mred\x1b[0m\n");
+        assert_eq!(perform.move_out_buffer(), "one\ntwo\tvalue\r\nred\n");
     }
 }

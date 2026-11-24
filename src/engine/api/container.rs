@@ -5,8 +5,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream::BoxStream;
-use http_body_util::Either;
-use http_body_util::Full;
+use tokio_util::io::ReaderStream;
 
 use crate::engine;
 use crate::engine::dto::ContainerInspection;
@@ -67,7 +66,7 @@ impl Container {
         }
     }
 
-    pub(crate) async fn copy_to(&self, path: String, buf: Vec<u8>) -> anyhow::Result<()> {
+    pub(crate) async fn copy_to(&self, path: String, file: tokio::fs::File) -> anyhow::Result<()> {
         match self {
             Self::Docker { docker, id } => docker
                 .upload_to_container(
@@ -76,13 +75,16 @@ impl Container {
                         path,
                         ..Default::default()
                     }),
-                    Either::Left(Full::new(buf.into())),
+                    bollard::body_try_stream(ReaderStream::new(file)),
                 )
                 .await
                 .map_err(anyhow::Error::from),
 
             Self::Podman(container) => container
-                .copy_to(path, buf.into())
+                .copy_to(
+                    path,
+                    hyper_legacy::Body::wrap_stream(ReaderStream::new(file)),
+                )
                 .await
                 .map_err(anyhow::Error::from),
         }

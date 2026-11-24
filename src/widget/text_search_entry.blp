@@ -8,7 +8,9 @@ template $PdsTextSearchEntry: Widget {
 
   Text text {
     notify => $on_text_notify() swapped;
+    input-hints: no_spellcheck;
     max-width-chars: 32;
+    width-chars: 4;
   }
 
   Label info_label {
@@ -18,6 +20,9 @@ template $PdsTextSearchEntry: Widget {
     ]
 
     label: bind template.info bidirectional;
+    ellipsize: end;
+    max-width-chars: 12;
+    tooltip-text: bind template.info;
     xalign: 1;
   }
 
@@ -58,5 +63,42 @@ template $PdsTextSearchEntry: Widget {
         label: _("Whole Word");
       }
     }
+  }
+
+  MenuButton options_button {
+    icon-name: "view-more-symbolic";
+    tooltip-text: _("Search Options");
+    valign: center;
+    visible: false;
+
+    accessibility {
+      label: _("Search Options");
+    }
+
+    popover: Popover {
+      Box {
+        orientation: vertical;
+        spacing: 12;
+        margin-top: 12;
+        margin-bottom: 12;
+        margin-start: 12;
+        margin-end: 12;
+
+        CheckButton {
+          active: bind template.regex bidirectional;
+          label: _("Regular Expression");
+        }
+
+        CheckButton {
+          active: bind template.case-sensitive bidirectional;
+          label: _("Case Sensitive");
+        }
+
+        CheckButton {
+          active: bind template.whole-word bidirectional;
+          label: _("Whole Word");
+        }
+      }
+    };
   }
 }

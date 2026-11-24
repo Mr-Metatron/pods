@@ -24,9 +24,10 @@ Popover popover {
       name: "results";
 
       child: ScrolledWindow scrolled_window {
-        height-request: 200;
         hexpand: true;
         hscrollbar-policy: never;
+        max-content-height: 200;
+        propagate-natural-height: true;
         vexpand: true;
 
         ListView list_view {

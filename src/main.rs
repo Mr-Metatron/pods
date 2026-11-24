@@ -6,8 +6,11 @@ mod config;
 mod engine;
 mod expression;
 mod gettext;
+mod log_buffer;
 mod model;
 mod rt;
+#[cfg(test)]
+mod ui_tests;
 mod utils;
 mod view;
 mod widget;

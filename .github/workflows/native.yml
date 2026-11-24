@@ -1,0 +1,64 @@
+name: Native Alpine
+
+on:
+  pull_request:
+  push:
+    branches: [main, feat/linux-mobile-docker]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Alpine 3.24 (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build, install and test the native package and GTK widgets
+        run: |
+          mkdir -p "$RUNNER_TEMP/pods-native"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/source:ro" \
+            -v "$RUNNER_TEMP/pods-native:/out" \
+            -e PODS_BUILD_JOBS=2 \
+            alpine:3.24 \
+            sh /source/build-aux/ci-alpine.sh 2>&1 | \
+            tee "$RUNNER_TEMP/pods-native/build.log"
+      - name: Exercise the Docker adapter against the runner daemon
+        if: matrix.arch == 'x86_64'
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.test-tmp"
+          docker version > "$RUNNER_TEMP/pods-native/docker-version.txt"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/source:ro" \
+            -v "$RUNNER_TEMP/pods-native:/out:ro" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$GITHUB_WORKSPACE/.test-tmp:$GITHUB_WORKSPACE/.test-tmp" \
+            -e PODS_TEST_UID="$(id -u)" \
+            -e PODS_TEST_DOCKER_HOST=unix:///var/run/docker.sock \
+            -e PODS_TEST_ISOLATED_DOCKER=0 \
+            -e PODS_TEST_IMAGE=alpine:3.24 \
+            -e PODS_TEST_SHARED_DIR="$GITHUB_WORKSPACE/.test-tmp" \
+            -e TMPDIR="$GITHUB_WORKSPACE/.test-tmp" \
+            alpine:3.24 \
+            sh /source/build-aux/ci-alpine.sh live 2>&1 | \
+            tee "$RUNNER_TEMP/pods-native/docker-live.log"
+      - name: Upload packages, screenshots and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pods-alpine-${{ matrix.arch }}
+          path: ${{ runner.temp }}/pods-native/
+          if-no-files-found: error

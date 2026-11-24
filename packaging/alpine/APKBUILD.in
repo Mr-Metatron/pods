@@ -1,0 +1,69 @@
+# Generate a checksum-pinned APKBUILD with build-aux/prepare-alpine.py.
+pkgname=pods
+pkgver=@VERSION@
+pkgrel=0
+pkgdesc="Manage Podman and Docker containers"
+url="https://github.com/marhkb/pods"
+arch="aarch64 x86_64"
+license="GPL-3.0-or-later"
+depends="adwaita-icon-theme ca-certificates dconf gsettings-desktop-schemas openssh-client-default"
+makedepends="
+	blueprint-compiler
+	cargo>=1.92
+	desktop-file-utils
+	gettext-dev
+	glib-dev>=2.88
+	gtk4.0-dev>=4.22
+	gtksourceview5-dev
+	libadwaita-dev>=1.9
+	libxml2-utils
+	meson
+	ninja
+	pkgconf
+	python3
+	rust>=1.92
+	vte3-dev
+	"
+checkdepends="appstream-glib"
+subpackages="$pkgname-lang"
+# Dependencies are fetched during prepare(); build and check are offline.
+options="net"
+_commit=@COMMIT@
+source="@SOURCE@"
+builddir="$srcdir/$pkgname-$pkgver"
+
+export CARGO_HOME="$srcdir/cargo-home"
+# abuild sets its own Cargo defaults before loading this file. Separate knobs
+# keep the intended memory limits effective while allowing builder overrides.
+export CARGO_BUILD_JOBS="${PODS_BUILD_JOBS:-2}"
+export CARGO_PROFILE_RELEASE_DEBUG=0
+export CARGO_PROFILE_RELEASE_LTO="${PODS_RELEASE_LTO:-thin}"
+export CARGO_PROFILE_RELEASE_CODEGEN_UNITS="${PODS_RELEASE_CODEGEN_UNITS:-16}"
+
+prepare() {
+	default_prepare
+	cargo fetch --locked --target="$CTARGET"
+}
+
+build() {
+	export CARGO_NET_OFFLINE=true
+	abuild-meson \
+		-Dprofile=default \
+		-Dcargo-offline=true \
+		-Dcargo-clippy=false \
+		. output
+	meson compile -C output
+}
+
+check() {
+	export CARGO_NET_OFFLINE=true
+	meson test --no-rebuild --print-errorlogs -C output
+}
+
+package() {
+	DESTDIR="$pkgdir" meson install --no-rebuild -C output
+}
+
+sha512sums="
+@SHA512@  @SOURCE@
+"

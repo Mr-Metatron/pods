@@ -9,6 +9,7 @@ use gtk::gdk;
 use gtk::glib;
 use smart_default::SmartDefault;
 
+use crate::expression::ExpressionExt;
 use crate::model;
 use crate::utils;
 use crate::view;
@@ -18,6 +19,14 @@ const ACTION_PIP_OUT: &str = "container-terminal-page.pip-out";
 const ACTION_ZOOM_OUT: &str = "container-terminal-page.zoom-out";
 const ACTION_ZOOM_IN: &str = "container-terminal-page.zoom-in";
 const ACTION_ZOOM_NORMAL: &str = "container-terminal-page.zoom-normal";
+const ACTION_PASTE: &str = "container-terminal-page.paste";
+const TOUCH_KEYS: [(&str, &[u8]); 5] = [
+    ("container-terminal-page.escape", b"\x1b"),
+    ("container-terminal-page.tab", b"\t"),
+    ("container-terminal-page.interrupt", b"\x03"),
+    ("container-terminal-page.previous-command", b"\x1b[A"),
+    ("container-terminal-page.next-command", b"\x1b[B"),
+];
 
 mod imp {
     use super::*;
@@ -37,6 +46,8 @@ mod imp {
         pub(super) menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
         pub(super) terminal: TemplateChild<view::ContainerTerminal>,
+        #[template_child]
+        pub(super) touch_controls: TemplateChild<gtk::Box>,
     }
 
     #[glib::object_subclass]
@@ -61,6 +72,17 @@ mod imp {
             });
             klass.install_action(ACTION_ZOOM_NORMAL, None, |widget, _, _| {
                 widget.imp().terminal.zoom_normal();
+            });
+
+            for (action, input) in TOUCH_KEYS {
+                klass.install_action(action, None, move |widget, _, _| {
+                    widget.imp().terminal.send_input(input);
+                    widget.imp().terminal.grab_focus();
+                });
+            }
+            klass.install_action(ACTION_PASTE, None, |widget, _, _| {
+                widget.imp().terminal.paste();
+                widget.imp().terminal.grab_focus();
             });
 
             klass.add_binding_action(
@@ -124,6 +146,11 @@ mod imp {
                 .downcast::<gtk::PopoverMenu>()
                 .unwrap()
                 .add_child(&*self.zoom_control, "zoom-control");
+
+            Self::Type::this_expression("container")
+                .chain_property::<model::Container>("status")
+                .map(|status: model::ContainerStatus| status == model::ContainerStatus::Running)
+                .bind(&*self.touch_controls, "sensitive", Some(&*self.obj()));
         }
     }
 

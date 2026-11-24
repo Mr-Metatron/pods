@@ -212,11 +212,11 @@ impl ConnectionManager {
 
         let engine = create_engine(self.abort_registration(), connection.url().to_owned())
             .exec()
-            .await?;
+            .await;
 
         self.set_creating_new_connection(false);
 
-        match engine {
+        match engine? {
             Ok(engine) => {
                 let (position, _) = imp
                     .connections

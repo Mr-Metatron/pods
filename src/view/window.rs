@@ -301,10 +301,6 @@ impl Window {
                 "welcome"
             });
 
-        utils::show_error_toast(
-            &*imp.toast_overlay,
-            &gettext("Connection lost"),
-            &e.to_string(),
-        );
+        view::show_connection_error(self, &gettext("Connection lost"), &e.to_string());
     }
 }

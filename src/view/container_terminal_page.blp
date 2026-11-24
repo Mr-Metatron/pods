@@ -17,44 +17,148 @@ $PdsZoomControl zoom_control {
 template $PdsContainerTerminalPage: Adw.NavigationPage {
   title: _("Container Terminal");
 
-  Adw.ToolbarView {
-    [top]
-    Adw.HeaderBar {
-      [start]
-      Button detach_button {
-        action-name: "container-terminal-page.pip-out";
-        icon-name: "pip-out-symbolic";
-        tooltip-text: _("Detach Terminal");
+  Adw.BreakpointBin {
+    height-request: 180;
+    width-request: 360;
 
-        accessibility {
-          label: _("Detach Terminal");
-        }
+    Adw.Breakpoint {
+      condition ("max-width: 668sp")
 
-        visible: bind detach_button.sensitive;
-      }
-
-      [title]
-      Adw.WindowTitle {
-        title: _("Container Terminal");
-        subtitle: bind template.container as <$PdsContainer>.name;
-      }
-
-      [end]
-      MenuButton menu_button {
-        icon-name: "view-more-symbolic";
-        menu-model: menu;
-        tooltip-text: _("Terminal Options");
-
-        accessibility {
-          label: _("Terminal Options");
-        }
+      setters {
+        touch_controls.visible: true;
       }
     }
 
-    $PdsContainerTerminal terminal {
-      terminated => $on_terminal_terminated() swapped;
-      vexpand: "True";
-      container: bind template.container;
+    Adw.ToolbarView {
+      [top]
+      Adw.HeaderBar {
+        [start]
+        Button detach_button {
+          action-name: "container-terminal-page.pip-out";
+          icon-name: "pip-out-symbolic";
+          tooltip-text: _("Detach Terminal");
+
+          accessibility {
+            label: _("Detach Terminal");
+          }
+
+          visible: bind detach_button.sensitive;
+        }
+
+        [title]
+        Adw.WindowTitle {
+          title: _("Container Terminal");
+          subtitle: bind template.container as <$PdsContainer>.name;
+        }
+
+        [end]
+        MenuButton menu_button {
+          icon-name: "view-more-symbolic";
+          menu-model: menu;
+          tooltip-text: _("Terminal Options");
+
+          accessibility {
+            label: _("Terminal Options");
+          }
+        }
+      }
+
+      $PdsContainerTerminal terminal {
+        terminated => $on_terminal_terminated() swapped;
+        vexpand: "True";
+        container: bind template.container;
+      }
+
+      [bottom]
+      Box touch_controls {
+        styles [
+          "toolbar",
+        ]
+
+        spacing: 3;
+        visible: false;
+
+        Button {
+          action-name: "container-terminal-page.escape";
+          focus-on-click: false;
+          height-request: 44;
+          hexpand: true;
+          label: _("Esc");
+          tooltip-text: _("Escape");
+
+          accessibility {
+            label: _("Escape");
+          }
+        }
+
+        Button {
+          action-name: "container-terminal-page.tab";
+          focus-on-click: false;
+          height-request: 44;
+          hexpand: true;
+          label: _("Tab");
+          tooltip-text: _("Tab (Completion)");
+
+          accessibility {
+            label: _("Tab (Completion)");
+          }
+        }
+
+        Button {
+          action-name: "container-terminal-page.interrupt";
+          focus-on-click: false;
+          height-request: 44;
+          hexpand: true;
+          label: _("Ctrl+C");
+          tooltip-text: _("Interrupt Command");
+
+          accessibility {
+            label: _("Interrupt Command");
+          }
+        }
+
+        Button {
+          action-name: "container-terminal-page.previous-command";
+          focus-on-click: false;
+          height-request: 44;
+          hexpand: true;
+          icon-name: "go-up-symbolic";
+          tooltip-text: _("Previous Command");
+          width-request: 44;
+
+          accessibility {
+            label: _("Previous Command");
+          }
+        }
+
+        Button {
+          action-name: "container-terminal-page.next-command";
+          focus-on-click: false;
+          height-request: 44;
+          hexpand: true;
+          icon-name: "go-down-symbolic";
+          tooltip-text: _("Next Command");
+          width-request: 44;
+
+          accessibility {
+            label: _("Next Command");
+          }
+        }
+
+        Button {
+          action-name: "container-terminal-page.paste";
+          focus-on-click: false;
+          height-request: 44;
+          hexpand: true;
+          icon-name: "edit-paste-symbolic";
+          tooltip-text: _("Paste");
+          width-request: 44;
+
+          accessibility {
+            label: _("Paste");
+          }
+        }
+      }
     }
   }
 }

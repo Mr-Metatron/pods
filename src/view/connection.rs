@@ -4,6 +4,18 @@ use gtk::glib;
 use crate::gettext::gettext;
 use crate::model;
 
+pub(crate) fn show_connection_error<W: IsA<gtk::Widget>>(widget: &W, heading: &str, body: &str) {
+    let dialog = adw::AlertDialog::builder()
+        .heading(heading)
+        .body(body)
+        .build();
+
+    dialog.add_response("close", &gettext("_Close"));
+    dialog.set_default_response(Some("close"));
+    dialog.set_close_response("close");
+    dialog.present(Some(widget));
+}
+
 pub(crate) fn show_ongoing_actions_warning_dialog<W: IsA<gtk::Widget>>(
     widget: &W,
     connection_manager: &model::ConnectionManager,

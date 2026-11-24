@@ -1,7 +1,6 @@
 use futures::StreamExt;
 use futures::stream::BoxStream;
-use http_body_util::Either;
-use http_body_util::Full;
+use tokio_util::io::ReaderStream;
 
 use crate::engine;
 
@@ -29,22 +28,20 @@ impl Images {
     ) -> anyhow::Result<BoxStream<'_, anyhow::Result<engine::dto::ImageBuildReport>>> {
         match self {
             Self::Docker(docker) => {
-                // TODO: as podman_api builds the body itself with blocking methods we have to do the same here
-                let body = {
-                    let mut builder = tar::Builder::new(Vec::new());
-
-                    builder.append_dir_all(".", &opts.path)?;
-                    builder.finish()?;
-                    builder.into_inner()?
-                };
-
                 Ok(async_stream::stream! {
+                    let body = match engine::archive::directory(std::path::Path::new(&opts.path)).await {
+                        Ok(file) => file,
+                        Err(error) => {
+                            yield Err(anyhow::Error::from(error));
+                            return;
+                        }
+                    };
                     let mut image_id = None;
                     // after Docker sends the "aux" elem there are 2 elems remaining before we can close the stream
                     let mut elem_countdown = 2;
 
                     let mut stream =
-                        docker.build_image(opts, None, Some(Either::Left(Full::new(body.into()))));
+                        docker.build_image(opts, None, Some(bollard::body_try_stream(ReaderStream::new(body))));
 
                     while let Some(item) = stream.next().await {
                         match item {

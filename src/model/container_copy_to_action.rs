@@ -10,7 +10,9 @@ use glib::Properties;
 use glib::clone;
 use glib::subclass::prelude::*;
 use gtk::glib;
+use tokio::io::AsyncSeekExt;
 
+use crate::engine;
 use crate::model;
 use crate::model::prelude::*;
 use crate::rt;
@@ -96,10 +98,10 @@ impl ContainerCopyToAction {
             let directory = self.directory();
 
             async move {
-                let mut ar = tokio_tar::Builder::new(Vec::new());
-
                 future::Abortable::new(
                     async move {
+                        let mut ar =
+                            tokio_tar::Builder::new(engine::archive::temporary_file().await?);
                         let host_path = PathBuf::from(host_path);
                         let file_name = host_path.file_name();
                         if directory {
@@ -131,7 +133,11 @@ impl ContainerCopyToAction {
 
                         let abort_registration = obj.setup_abort_handle();
                         rt::Promise::new(future::Abortable::new(
-                            ar.into_inner(),
+                            async move {
+                                let mut file = ar.into_inner().await?;
+                                file.rewind().await?;
+                                Ok::<_, std::io::Error>(file)
+                            },
                             abort_registration,
                         ))
                         .defer(clone!(
@@ -165,8 +171,15 @@ impl ContainerCopyToAction {
                                         .defer(clone!(
                                             #[weak]
                                             obj,
-                                            move |result| if result.is_ok() {
-                                                obj.set_state(model::ActionState::Finished);
+                                            move |result| if let Ok(result) = result {
+                                                match result {
+                                                    Ok(()) => {
+                                                        obj.set_state(model::ActionState::Finished)
+                                                    }
+                                                    Err(error) => {
+                                                        obj.set_failed(&error.to_string())
+                                                    }
+                                                }
                                             }
                                         ));
                                     }
