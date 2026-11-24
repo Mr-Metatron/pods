@@ -199,6 +199,10 @@
     ],
     "tests/qemu/initramfs-init.sh": [
       "M-VERIFY"
+    ],
+    "src/view/images_panel.blp": [
+      "M-LAYOUT",
+      "M-INPUT"
     ]
   }
 }

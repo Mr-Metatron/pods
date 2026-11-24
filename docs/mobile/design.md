@@ -77,6 +77,20 @@ Pods 已有 Docker / Podman 后端、折叠导航、360 宽窗口下限、窄屏
 
 QEMU system 已能在沙箱中启动独立的 ARM64 / x86_64 客体内核，并运行 Unix socket、Docker 和 GTK/Wayland。可在模拟机完成的布局、焦点、菜单与导航检查在本轮执行。Pixel 2 图形驱动、触屏命中感受、实际键盘协议和功耗保留为设备验收。r1的已通过记录保留其原覆盖范围；其欢迎页、加载态导航及独立控件结果不作为其他页面的完成记录。
 
+## 空镜像页操作区的补充设计
+
+2026-11-24的固定源码 `182aad8d00fdcf7a4faa73c034cb4ce3f3ef3ffd` 原生构建中，x86_64中英文完整UI用例均通过，但后续逐图审查发现 `empty-images-651x366.png` 中拉取和构建按钮稳定地只剩约1px横线。日志对应 `GtkBox exceeds AdwBreakpointBin height: requested 44/106 px, 1 px available`。现有空态检查只验证页面工具栏与控件横向范围，没有断言这两个按钮在祖先裁切区域中的完整高度；该轮通过结果保留这个覆盖缺口。
+
+问题直接对应 M-LAYOUT / M-INPUT。`src/view/images_panel.blp` 的空态操作区已使用 Adw.StatusPage 内置滚动，但内部 Adw.BreakpointBin 把最小高度声明为1。libadwaita 1.9.2在有断点时不从子控件推导最小尺寸；父容器缩短时，按钮区会降至1px而裁切实际44px按钮。竖排的两个按钮各44px，原间距18px，当前样式需要106px。
+
+最小候选仅把该 `height-request` 从1改为106，保留原336宽度请求、500sp方向切换、SizeGroup、按钮名称与动作，以及StatusPage的既有滚动路径。先验证这一个属性；不增加外层滚动容器，不改镜像拉取/构建逻辑，不重构其他状态页。以实际子控件测量校验106px是否足够，并检查桌面横排后的布局。
+
+补充验收覆盖360×651、366×651、651×366、366×300和1024×768：保存初始与滚到底部截图，要求两个按钮已映射且可用；操作区高度至少容纳子Box的实际最小高度；按钮完整落在操作区中；沿StatusPage既有滚动条到达底部后，按钮完整落在滚动视口与窗口中，实际高度不小于自身测得的最低高度。新增断言须先在修改前复现失败，再检查修改后的英文、中文与Wayland。
+
+容器和卷空态采用StatusPage直接承载按钮，没有同一1px断点结构。对它们补充原滚动路径的操作可达性检查；只有实际失败才产生产品修改。先前五处合法布局调整继续保留。完成该局部修正后重新固定源码、构建两架构原生包，并使用对应ARM64 APK完成客体验收。此补充随设计存档读回成功后，才进入上述修改。
+
+源码依据为[libadwaita 1.9.2 BreakpointBin](https://github.com/GNOME/libadwaita/blob/1.9.2/src/adw-breakpoint-bin.c)与[StatusPage模板](https://github.com/GNOME/libadwaita/blob/1.9.2/src/adw-status-page.ui)，以及当前固定源码中的 `images_panel.blp` 和原生制品截图。其余 In Scope、Out of Scope及已批准启动例外保持有效。
+
 ## 交付
 
 交付最小适配分支、原生 APKBUILD、逐项需求追踪、独立上游问题清单、当前补丁的验证记录，以及实机验收步骤。此前已推送的较宽候选以明确的后续回退提交收拢，不删除审查历史，不向上游发送 PR 或问题消息。

@@ -71,8 +71,8 @@ The runner streams each process's log to the serial console and retains it in
 the output directory. Each process has a 600-second timeout; a development guest
 may set `PODS_UI_TEST_TIMEOUT` explicitly. A timeout is a failed run with retained
 evidence. `PODS_UI_TEST_OUTPUT_ROOT` selects a separate output directory for an
-iteration. `PODS_UI_TEST_SECTION=forms`, `auxiliary` or `pages` selects one
-section when diagnosing a concrete failure; final combined runs leave it unset.
+iteration. `PODS_UI_TEST_SECTION=forms`, `auxiliary`, `empty` or `pages` selects
+one section when diagnosing a concrete failure; final combined runs leave it unset.
 
 For a separate native color-chooser check, set `PODS_UI_TEST_COLOR_ONLY=desktop`
 to inspect the chooser's actual toplevel on the ordinary output. For the phone
@@ -177,6 +177,15 @@ on both sides of the revised 720sp threshold, as well as at the former 668sp
 boundary. This catches the child clipping that the earlier loading-only check
 did not assert. Long image and volume labels must retain usable text width while
 short labels keep their compact inline layout.
+
+Empty container, image and volume states also scroll their existing StatusPage
+containers to the end in all five viewports. The real buttons must be mapped,
+sensitive, tall enough for their measured minimum, and fully inside the clipped
+viewport and window. The image action bin must contain its child and both
+buttons. This catches the original 1px bin minimum even when the buttons
+themselves retain a 44px allocation. Welcome, filtered-list Show All and stopped
+terminal Start buttons use the same scrolling and clipped-boundary checks in
+their existing viewport loops; those added checks do not activate their actions.
 
 Form checks use the real connection, container, image, volume, copy, commit,
 prune and action dialogs. They exercise text entry, focus, scroll-to-end and

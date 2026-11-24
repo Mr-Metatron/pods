@@ -12,6 +12,7 @@
 | M-LAYOUT | `view/client_view.blp` | 双栏展开阈值从668sp提高到720sp；原边界小于实际子控件最小宽，导致右侧按钮裁切。折叠导航、选择与返回逻辑不变 |
 | M-LAYOUT | `view/image_row.blp`、`volume_row.blp`、`container_volume_row.blp` | 仅将名称/标签与状态计数的内部横排改为已有的 Adw.WrapBox；长名称在手机上取得完整可用宽，短内容和桌面仍可并排；操作与计数模型不变 |
 | M-LAYOUT | `view/container_create_opts_dialog.blp` | 创建容器的三页 ToggleGroup 按标题所需宽度分配空间，取消等宽限制；360/366宽的 Integration 标题完整显示。标题、页面绑定和字段逻辑不变 |
+| M-LAYOUT、M-INPUT | `view/images_panel.blp` | 空镜像页按钮区最小高度从1改为106，容纳原竖排两个44px按钮及18px间距；保留500sp方向断点、按钮动作和StatusPage原滚动路径 |
 | M-LAYOUT、M-INPUT | 连接对话框 Blueprint | 为帮助内容增加滚动和换行；显示目标平台服务及权限说明；设置 URL 输入语义 |
 | M-LAYOUT、M-INPUT | `widget/source_view_search_widget.blp`、`text_search_entry` | 窄栏收起搜索选项至 Popover，宽栏恢复原开关；复用现有搜索属性 |
 | M-INPUT | `widget/suggestion_entry_row.blp` | 建议弹层按内容高度收缩并滚动；建议获取、过滤和选择逻辑保持不变 |

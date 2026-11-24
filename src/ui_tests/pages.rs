@@ -144,7 +144,6 @@ fn pop_to(navigation: &adw::NavigationView, page: &impl IsA<adw::NavigationPage>
 }
 
 pub(super) fn run(window: &adw::Window, fixture: &Fixture, directory: &Path) {
-    check_empty_lists(window, directory);
     let client_view: view::ClientView = glib::Object::builder()
         .property("client", fixture.client())
         .build();
@@ -443,6 +442,13 @@ fn check_panel_search(window: &adw::Window, panel: &gtk::Widget, directory: &Pat
     wait_until("empty filtered list", || {
         stack.visible_child_name().as_deref() == Some("empty")
     });
+    let status = stack.visible_child().unwrap();
+    let action = format!("{name}-panel.show-all-{name}");
+    let show_all = descendants(&status)
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+        .find(|button| button.action_name().as_deref() == Some(action.as_str()))
+        .expect("filtered empty-state Show All action");
     for (width, height) in [(360, 651), (366, 300), (651, 366)] {
         resize(window, width, height);
         capture(
@@ -452,6 +458,12 @@ fn check_panel_search(window: &adw::Window, panel: &gtk::Widget, directory: &Pat
         );
         assert_chrome_fits(panel, window);
         assert_fits(&entry, panel);
+        check_scrolled_actions(
+            window,
+            std::slice::from_ref(&show_all),
+            directory,
+            &format!("filter-{name}-scroll-end-{width}x{height}"),
+        );
     }
     panel
         .activate_action(&format!("{name}-panel.show-all-{name}"), None)
@@ -481,7 +493,7 @@ fn check_menu(window: &adw::Window, menu: &gtk::MenuButton, directory: &Path, na
     settle();
 }
 
-fn check_empty_lists(window: &adw::Window, directory: &Path) {
+pub(super) fn empty(window: &adw::Window, _fixture: &Fixture, directory: &Path) {
     let fixture = Fixture::empty(directory);
     let client_view: view::ClientView = glib::Object::builder()
         .property("client", fixture.client())
@@ -495,13 +507,80 @@ fn check_empty_lists(window: &adw::Window, directory: &Path) {
         sidebar.emit_by_name::<()>("activated", &[&index]);
         settle();
         let panel = panels.visible_child().unwrap();
-        for (width, height) in [(360, 651), (366, 300), (651, 366)] {
+        for (width, height) in VIEWPORTS {
             resize(window, width, height);
+            let status = descendants(&panel)
+                .into_iter()
+                .filter_map(|widget| widget.downcast::<adw::StatusPage>().ok())
+                .find(|status| status.is_mapped())
+                .expect("empty panel must show its status page");
+            let scroll: gtk::ScrolledWindow = find(&status);
+            let adjustment = scroll.vadjustment();
+            adjustment.set_value(adjustment.lower());
+            settle();
+            wait_for_paint(window);
             capture(window, directory, &format!("empty-{name}-{width}x{height}"));
             assert_chrome_fits(&panel, window);
+
+            let actions: &[&str] = match name {
+                "containers" => &["containers-panel.create-container"],
+                "images" => &["images-panel.pull-image", "images-panel.build-image"],
+                "volumes" => &["volumes-panel.create-volume"],
+                _ => unreachable!(),
+            };
+            let buttons: Vec<gtk::Button> = actions
+                .iter()
+                .map(|action| {
+                    descendants(&status)
+                        .into_iter()
+                        .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+                        .find(|button| button.action_name().as_deref() == Some(*action))
+                        .unwrap_or_else(|| panic!("missing empty-state action {action}"))
+                })
+                .collect();
+
+            // StatusPage already scrolls its content. Check the actual clipped
+            // viewport after scrolling, not just the outer panel's allocation.
+            adjustment.set_value(adjustment.upper() - adjustment.page_size());
+            settle();
+            wait_for_paint(window);
+            capture(
+                window,
+                directory,
+                &format!("empty-{name}-scroll-end-{width}x{height}"),
+            );
+            if name == "images" {
+                let bin = status
+                    .child()
+                    .unwrap()
+                    .downcast::<adw::BreakpointBin>()
+                    .unwrap();
+                let child = bin.child().unwrap();
+                let minimum = child.measure(gtk::Orientation::Vertical, bin.width()).0;
+                eprintln!(
+                    "empty-images action bin: height={}, child minimum={minimum}, child bounds={:?}",
+                    bin.height(),
+                    child.compute_bounds(&bin)
+                );
+                assert!(
+                    bin.height() >= minimum,
+                    "empty-image action bin clips its child: {}px allocated, {minimum}px required",
+                    bin.height()
+                );
+                for button in &buttons {
+                    assert_fits(button, &bin);
+                }
+            }
+            assert_scrolled_action_bounds(
+                window,
+                &scroll,
+                &buttons,
+                &format!("empty-{name} {width}x{height}"),
+            );
         }
     }
     fixture.assert_requests();
+    eprintln!("Empty container, image and volume actions fit and remain reachable after scrolling");
 }
 
 fn check_rename(window: &adw::Window, details: &view::ContainerDetailsPage, directory: &Path) {

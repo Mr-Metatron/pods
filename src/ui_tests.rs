@@ -178,6 +178,86 @@ fn assert_fits(widget: &impl IsA<gtk::Widget>, parent: &impl IsA<gtk::Widget>) {
     );
 }
 
+fn assert_scrolled_action_bounds(
+    window: &impl IsA<gtk::Window>,
+    scroll: &gtk::ScrolledWindow,
+    buttons: &[gtk::Button],
+    name: &str,
+) {
+    let window = window.as_ref();
+    let viewport = scroll.child().expect("action scrolling viewport");
+    let adjustment = scroll.vadjustment();
+    eprintln!(
+        "{name}: scroll value={}, upper={}, page-size={}",
+        adjustment.value(),
+        adjustment.upper(),
+        adjustment.page_size()
+    );
+    assert!(
+        (adjustment.value() + adjustment.page_size() - adjustment.upper()).abs() < 1.0,
+        "actions must be reachable at the end of the existing scroll area"
+    );
+    for button in buttons {
+        let bounds = button.compute_bounds(button).unwrap();
+        let minimum = button
+            .measure(
+                gtk::Orientation::Vertical,
+                bounds.width() as i32 + button.margin_start() + button.margin_end(),
+            )
+            .0;
+        // measure includes explicit widget margins; compute_bounds describes
+        // the border box. Welcome's existing New Connection button has a margin.
+        let allocated = bounds.height() + (button.margin_top() + button.margin_bottom()) as f32;
+        eprintln!(
+            "{name} action {}: mapped={}, sensitive={}, border height={}, allocated with margins={allocated}, minimum={minimum}, viewport bounds={:?}",
+            button.action_name().unwrap(),
+            button.is_mapped(),
+            button.is_sensitive(),
+            bounds.height(),
+            button.compute_bounds(&viewport)
+        );
+        assert!(button.is_mapped());
+        assert!(button.is_sensitive());
+        assert!(allocated >= minimum as f32);
+        assert_fits(button, &viewport);
+        assert_fits(button, scroll);
+        assert_fits(button, window);
+        let mut ancestor = button.parent();
+        while let Some(widget) = ancestor {
+            if widget.overflow() == gtk::Overflow::Hidden {
+                assert_fits(button, &widget);
+            }
+            ancestor = widget.parent();
+        }
+    }
+}
+
+fn check_scrolled_actions(
+    window: &impl IsA<gtk::Window>,
+    buttons: &[gtk::Button],
+    directory: &Path,
+    name: &str,
+) {
+    let window = window.as_ref();
+    let scroll = buttons
+        .first()
+        .expect("at least one action button")
+        .ancestor(gtk::ScrolledWindow::static_type())
+        .expect("action's existing scrolling container")
+        .downcast::<gtk::ScrolledWindow>()
+        .unwrap();
+    let adjustment = scroll.vadjustment();
+    let previous = adjustment.value();
+    adjustment.set_value(adjustment.upper() - adjustment.page_size());
+    settle();
+    wait_for_paint(window);
+    capture(window, directory, name);
+    assert_scrolled_action_bounds(window, &scroll, buttons, name);
+    adjustment.set_value(previous);
+    settle();
+    wait_for_paint(window);
+}
+
 fn capture(widget: &impl IsA<gtk::Widget>, directory: &Path, name: &str) {
     let widget = widget.as_ref();
     let paintable = gtk::WidgetPaintable::new(Some(widget));
@@ -277,6 +357,11 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
         .unwrap();
     assert_eq!(main_stack.visible_child_name().as_deref(), Some("welcome"));
     let welcome = main_stack.visible_child().unwrap();
+    let new_connection = descendants(&welcome)
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+        .find(|button| button.action_name().as_deref() == Some("win.create-connection"))
+        .expect("welcome New Connection action");
     for (width, height) in [(366, 651), (651, 366), (366, 300), (360, 651), (1024, 768)] {
         resize(&main_window, width, height);
         assert_fits(&welcome, &main_window);
@@ -284,6 +369,12 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
             &main_window,
             &directory,
             &format!("startup-{width}x{height}"),
+        );
+        check_scrolled_actions(
+            &main_window,
+            std::slice::from_ref(&new_connection),
+            &directory,
+            &format!("startup-actions-scroll-end-{width}x{height}"),
         );
     }
     println!("Application activation and main-window startup passed with the installed schema");
@@ -298,9 +389,10 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
     let client = fixture.client();
     let manager = fixture.manager();
     let mut failed_sections = Vec::new();
-    let sections: [(&str, fn(&adw::Window, &fixture::Fixture, &Path)); 3] = [
+    let sections: [(&str, fn(&adw::Window, &fixture::Fixture, &Path)); 4] = [
         ("forms", forms::run),
         ("auxiliary", auxiliary::run),
+        ("empty", pages::empty),
         ("pages", pages::run),
     ];
     let selected_section = std::env::var("PODS_UI_TEST_SECTION").ok();
@@ -440,9 +532,22 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
     window.set_content(Some(&terminal_page));
     let controls = find_id(&terminal_page, "touch_controls");
     let terminal: view::ContainerTerminal = find(&terminal_page);
+    let start = descendants(&terminal)
+        .into_iter()
+        .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
+        .find(|button| {
+            button.action_name().as_deref() == Some("container-terminal.start-or-resume")
+        })
+        .expect("not-running terminal Start action");
     for (width, height) in [(366, 651), (651, 366), (366, 300), (360, 651), (1024, 768)] {
         resize(&window, width, height);
         capture(&window, &directory, &format!("terminal-{width}x{height}"));
+        check_scrolled_actions(
+            &window,
+            std::slice::from_ref(&start),
+            &directory,
+            &format!("terminal-start-scroll-end-{width}x{height}"),
+        );
         eprintln!(
             "terminal minimum widths: header={}, controls={}, terminal={}",
             find::<adw::HeaderBar>(&terminal_page)
