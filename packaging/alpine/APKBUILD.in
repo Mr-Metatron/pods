@@ -1,7 +1,7 @@
 # Generate a checksum-pinned APKBUILD with build-aux/prepare-alpine.py.
 pkgname=pods
 pkgver=@VERSION@
-pkgrel=0
+pkgrel=1
 pkgdesc="Manage Podman and Docker containers"
 url="https://github.com/marhkb/pods"
 arch="aarch64 x86_64"

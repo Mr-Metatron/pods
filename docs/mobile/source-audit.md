@@ -49,7 +49,7 @@ Docker build 和容器文件上传改用用户缓存目录中的匿名临时文�
 
 完整系统 QEMU 已证明沙箱能够运行独立客体内核及 Unix socket。较早宽范围候选还完成过真实 Docker 和 Registry 流程；这些结果属于已经撤回部分代码的历史候选，不能作为当前补丁验收结论。
 
-收拢后的测试直接覆盖修改的控件、socket、请求并发和归档传输。完整应用首次启动受未经批准的 schema 问题阻塞，必须单独报告；不会通过隐藏设置覆盖来让整机验收显示通过。Pixel 2 的 GPU、触屏、中文 preedit、Plasma Keyboard、295% 缩放、Portal、休眠、RSS/PSS 和功耗仍需实机记录。
+收拢后的测试直接覆盖修改的控件、socket、请求并发和归档传输。用户已单独批准修复直接阻塞首次启动的两行 schema，按 M-STARTUP 跟踪，完整应用启动与既有导航随后验证。Pixel 2 的 GPU、触屏、中文 preedit、Plasma Keyboard、295% 缩放、Portal、休眠、RSS/PSS 和功耗仍需实机记录。
 
 ## 来源
 

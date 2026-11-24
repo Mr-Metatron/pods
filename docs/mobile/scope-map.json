@@ -29,6 +29,9 @@
     "build-aux/run-qemu-tests.sh": [
       "M-VERIFY"
     ],
+    "data/com.github.marhkb.Pods.gschema.xml.in": [
+      "M-STARTUP"
+    ],
     "data/resources/style.css": [
       "M-INPUT",
       "M-LAYOUT"
@@ -82,7 +85,8 @@
     "src/ui_tests.rs": [
       "M-LAYOUT",
       "M-INPUT",
-      "M-VERIFY"
+      "M-VERIFY",
+      "M-STARTUP"
     ],
     "src/view/connection.rs": [
       "M-LOCAL",

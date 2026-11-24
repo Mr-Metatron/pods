@@ -1,9 +1,10 @@
 //! GTK integration checks using the installed application resources and real widgets.
 //!
 //! Run under a display server with GSETTINGS_BACKEND=memory, an isolated XDG config
-//! directory and the installed schema directory. These checks instantiate the changed
-//! mobile widgets directly; they do not activate the complete application or exercise
-//! a phone's compositor, input method or Docker daemon.
+//! directory and the installed schema directory. These checks activate the real main
+//! window, exercise its existing navigation with an isolated model, and instantiate
+//! the changed mobile widgets. A phone's input method and Docker daemon are separate
+//! device acceptance checks.
 
 use std::os::unix::net::UnixListener;
 use std::path::Path;
@@ -164,9 +165,10 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("pods-ui-tests"));
     std::fs::create_dir_all(&directory).unwrap();
+    let config_directory = tempfile::tempdir_in(&directory).unwrap();
     crate::APPLICATION_OPTS
         .set(crate::ApplicationOptions {
-            config_dir: directory.join("config"),
+            config_dir: config_directory.path().to_path_buf(),
             unix_socket_path: directory.join("missing-podman.sock"),
         })
         .unwrap();
@@ -186,6 +188,28 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
     let app = crate::Application::default();
     app.set_flags(gio::ApplicationFlags::NON_UNIQUE);
     app.register(gio::Cancellable::NONE).unwrap();
+    let image_settings = gio::Settings::new(&format!("{}.view.panels.images", config::APP_ID));
+    assert_eq!(image_settings.string("sort-attribute").as_str(), "id");
+    app.activate();
+    let main_window = app.main_window();
+    main_window.set_decorated(false);
+    settle();
+    let main_stack = find_id(&main_window, "main_stack")
+        .downcast::<gtk::Stack>()
+        .unwrap();
+    assert_eq!(main_stack.visible_child_name().as_deref(), Some("welcome"));
+    let welcome = main_stack.visible_child().unwrap();
+    for (width, height) in [(366, 651), (651, 366), (366, 300), (360, 651), (1024, 768)] {
+        resize(&main_window, width, height);
+        assert_fits(&welcome, &main_window);
+        capture(
+            &main_window,
+            &directory,
+            &format!("startup-{width}x{height}"),
+        );
+    }
+    println!("Application activation and main-window startup passed with the installed schema");
+    main_window.set_visible(false);
 
     let window = adw::Window::builder()
         .application(&app)
@@ -215,6 +239,46 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
             )),
         )
         .build();
+    let client_view: view::ClientView = glib::Object::builder().property("client", &client).build();
+    window.set_content(Some(&client_view));
+    let split: adw::NavigationSplitView = find(&client_view);
+    let sidebar: adw::Sidebar = find(&client_view);
+    let panels = find_id(&client_view, "panels_stack")
+        .downcast::<gtk::Stack>()
+        .unwrap();
+    let threshold = adw::LengthUnit::Sp.to_px(668.0, Some(&window.settings()));
+    let boundary = threshold.ceil() as i32;
+    for (width, height) in [
+        (366, 651),
+        (651, 366),
+        (boundary - 1, 366),
+        (boundary, 366),
+        (1024, 768),
+        (366, 300),
+    ] {
+        resize(&window, width, height);
+        // The existing min-width: 668sp condition includes the boundary.
+        assert_eq!(
+            split.is_collapsed(),
+            (client_view.width() as f64) < threshold
+        );
+        sidebar.emit_by_name::<()>("activated", &[&2u32]);
+        settle();
+        assert_eq!(panels.visible_child_name().as_deref(), Some("images"));
+        assert!(split.shows_content());
+        assert_fits(&client_view, &window);
+        assert!(find::<view::ImagesPanel>(&client_view).is_mapped());
+        capture(&window, &directory, &format!("navigation-{width}x{height}"));
+        if split.is_collapsed() {
+            split.activate_action("navigation.pop", None).unwrap();
+            settle();
+            assert!(!split.shows_content());
+            assert!(sidebar.is_mapped());
+            assert_fits(&sidebar, &window);
+        }
+    }
+    println!("Existing sidebar activation and navigation back passed at {threshold}px breakpoint");
+
     let buffer = sourceview5::Buffer::new(None::<&gtk::TextTagTable>);
     buffer.set_text("alpha Alpha\n日志一\n日志二\n");
     let source_view = sourceview5::View::with_buffer(&buffer);
@@ -502,6 +566,7 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
         directory.display()
     );
     window.destroy();
+    main_window.destroy();
     // Keep the application and synthetic fixture models alive until all windows close.
     drop((app, client, manager, connection, container));
 }

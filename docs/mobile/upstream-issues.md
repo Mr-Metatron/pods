@@ -1,12 +1,12 @@
 # 上游既有问题与独立验证记录
 
-基线为 [Pods 349be73c8bc2a3340e2b6187df1c0c676b63be82](https://github.com/marhkb/pods/tree/349be73c8bc2a3340e2b6187df1c0c676b63be82)。以下问题在移动适配审查中发现。本轮保留上游业务行为；此前试做的通用修复及对应验收断言已撤回。除下述完整启动阻塞外，其余条目只记录问题，不扩大本轮审批或开发范围。
+基线为 [Pods 349be73c8bc2a3340e2b6187df1c0c676b63be82](https://github.com/marhkb/pods/tree/349be73c8bc2a3340e2b6187df1c0c676b63be82)。以下问题在移动适配审查中发现。本轮保留上游业务行为；此前试做的通用修复及对应验收断言已撤回。下述完整启动阻塞已于2026-11-24获得用户对两行最小补丁的明确批准；其余条目只记录问题，不扩大开发范围。
 
 证据分为源码确认、受控接口/组件验证、真实 Docker 客体验证。真实客体使用 x86_64 Alpine 3.24、Docker 29.9.3；Pixel 2 的 Docker 29.9.2 和完整手机会话尚未完成验收。此前含临时修复的测试结果标为历史候选，当前补丁的结果另见[Docker 验证](testing-docker.md)。
 
 ## 完整启动阻塞：镜像排序默认值与枚举不一致
 
-**状态：等待用户单独批准；建议补丁未应用。** 该项阻止完整 Window/ClientView 初始化，直接影响后续手机端到端 UI 验收。
+**状态：用户于2026-11-24明确批准，已仅应用两行补丁；完整启动验证进行中。** 原问题阻止完整 Window/ClientView 初始化，直接影响手机端到端 UI 验收。授权记录见设计中的 M-STARTUP。
 
 [上游 schema](https://github.com/marhkb/pods/blob/349be73c8bc2a3340e2b6187df1c0c676b63be82/data/com.github.marhkb.Pods.gschema.xml.in#L151-L161) 的 `images.sort-attribute` choices/default 使用 `name`，而 [ImagesPanel::SortAttribute](https://github.com/marhkb/pods/blob/349be73c8bc2a3340e2b6187df1c0c676b63be82/src/view/images_panel.rs#L68-L78) 的枚举 nick 为 `id`、`tag`、`containers`。默认 GSettings 绑定因此被 GType 拒绝。
 
@@ -17,9 +17,9 @@ GLib-GIO-WARNING **: 05:29:15.345: Unable to look up enum nick ‘name’ via GT
 GLib-GIO-ERROR **: 05:29:15.348: The schema default value for key 'sort-attribute' in schema 'com.github.marhkb.Pods.view.panels.images' was rejected by the binding mapping function.
 ```
 
-工作区证据 `build-env/upstream-findings/schema-default-observed.log` 保存了当时输出的原文摘录。最初的循环 boot.log 已被后续测试覆盖，该摘录是保留的观察记录。当前 schema 已恢复上游的 `name`；本轮测试准备中已读回该值；scoped UI 测试仅构造本次改动的独立控件，不覆盖设置来绕过完整启动失败。
+工作区证据 `build-env/upstream-findings/schema-default-observed.log` 保存了当时输出的原文摘录。最初的循环 boot.log 已被后续测试覆盖，该摘录是保留的观察记录。范围回撤提交 f427564e 中，schema 恢复为上游的 `name`；该阶段只验证独立控件。用户批准后，当前 schema 才应用下述两行修复，随后用实际主窗口与既有导航验证。
 
-最小候选只改镜像 schema 中两行，完整可审阅文件为 [startup-schema.patch](proposals/startup-schema.patch)：
+已批准补丁只改镜像 schema 中两行，原始可审阅文件为 [startup-schema.patch](proposals/startup-schema.patch)：
 
 ```diff
 -        <choice value='name'/>
@@ -28,7 +28,7 @@ GLib-GIO-ERROR **: 05:29:15.348: The schema default value for key 'sort-attribut
 +      <default>'id'</default>
 ```
 
-其他 schema 的 `name` 保持原值。独立 keyfile 实验在旧设置含 `name` 的情况下读到旧 schema 为 `'name'`、候选 schema 为 `'id'`，记录位于 `build-env/schema-migration/result.log`；因此候选不附加迁移代码。应用这两行仍需用户授权，之后重新执行完整启动与导航验收。
+其他 schema 的 `name` 保持原值。独立 keyfile 实验在旧设置含 `name` 的情况下读到旧 schema 为 `'name'`、候选 schema 为 `'id'`，记录位于 `build-env/schema-migration/result.log`；因此候选不附加迁移代码。用户已明确授权应用这两行，完整启动与导航结果另行记录；没有添加迁移代码。
 
 ## 端口绑定丢失用户填写的地址
 

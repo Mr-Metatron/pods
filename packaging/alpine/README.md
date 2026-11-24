@@ -28,12 +28,11 @@ This is a reviewable packaging candidate. The checkout currently contains
 a complete `APKBUILD` and its matching source archive from a committed revision,
 with the actual SHA-512 checksum.
 
-Full application startup is blocked by the upstream `images.sort-attribute`
-schema default, which names `name` while its enum defines `id`. The schema is
-kept at the upstream baseline pending approval for the proposed minimal fix.
-See [the upstream issue record](../../docs/mobile/upstream-issues.md). The mobile
-GUI checks instantiate the changed widgets independently; full startup remains
-a separate blocked acceptance item.
+The two-line `images.sort-attribute` schema correction is the explicitly
+approved startup-blocker exception, tracked as M-STARTUP. It aligns the schema
+with the existing `id` enum value. See [the upstream issue record](../../docs/mobile/upstream-issues.md).
+The [verification report](../../docs/mobile/verification.md) identifies the tested
+source revision, package results and remaining device checks.
 
 ## Create a local source snapshot
 

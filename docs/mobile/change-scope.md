@@ -17,6 +17,7 @@
 | M-MEMORY | `engine/archive.rs`、`engine/api/container.rs`、`engine/api/images.rs`、`model/container_copy_to_action.rs` | 完整 tar 的内存缓冲改为缓存目录中的匿名文件，按流上传；保留同步准备顺序及原失败、取消、完成处理 |
 | M-NATIVE | `packaging/alpine`、`build-aux/prepare-alpine.py`、`src/meson.build`、README | 原生 APK、固定提交与源码校验、目标平台依赖、离线构建；Meson 只增加 `--locked` |
 | M-LOCALE | `po/zh_Hans.po`、APKBUILD | 只翻译本轮新增字符串；APK 将已有 catalog 映射到 zh_CN |
+| M-STARTUP | `data/com.github.marhkb.Pods.gschema.xml.in` | 用户于2026-11-24单独批准：只把 images.sort-attribute 的 choice/default 从 name 改为 id，共两行 |
 | M-VERIFY | native workflow、`ci-alpine.sh`、`ui_tests.rs`、`main.rs`、两个 engine harness、QEMU helpers | 只验证适配控件、权限、传输和原生安装；`main.rs` 只增加测试模块声明 |
 
 `Cargo.toml` 的新增直接依赖为已经存在于上游锁文件的 Hyper 0.14 和 tempfile，分别用于保持 Podman 的流上传类型和匿名临时文件。Tokio 的 net、tokio-util 的 io feature 服务于上述 socket 和文件传输。锁文件中 335 个包的名称、版本、来源和 checksum 与基线相同。
@@ -25,14 +26,13 @@
 
 先前候选中的 API 协商、端口地址、pull ID、build EOF、统计计算、stop 状态、连接取消与上传结果修复均已撤回。日志缓冲、解析、重连、导出及后台流生命周期修改也已撤回。通用构建 helper、上游发行流程调整、最低版本同步、旧翻译补全与欢迎文案改写不再保留。
 
-以下文件已经与基线逐字节核对一致：
+批准启动修复后，以下 14 个文件仍与基线逐字节一致；schema 的两行例外单独列在上表：
 
 ```text
 .github/workflows/release.yml
 build-aux/dist-vendor.sh
 meson.build
 meson_options.txt
-data/com.github.marhkb.Pods.gschema.xml.in
 src/engine/dto/container_stats.rs
 src/engine/dto/port.rs
 src/engine/opts/container_create_opts.rs
@@ -51,4 +51,4 @@ src/view/welcome_page.blp
 
 验证记录分别见 [Docker 与资源路径](testing-docker.md)、[QEMU 与控件](testing-qemu.md)和[Pixel 2 待验项目](device-acceptance.md)。先前宽范围候选的通过结果属于历史调查，当前工作树单独验证。
 
-镜像排序 schema 的两行启动修复已经撤回并保存为[未应用补丁](proposals/startup-schema.patch)。该问题及其他上游缺陷见[独立清单](upstream-issues.md)。只有取得用户对这两行的明确批准后，才能继续完整应用启动与手机端到端验收。
+镜像排序 schema 的[两行补丁](proposals/startup-schema.patch)在范围回撤时曾撤销。用户于2026-11-24明确批准后，已按 M-STARTUP 单独应用并进入完整启动与导航验证。该授权不包含[独立清单](upstream-issues.md)中的其他上游问题。

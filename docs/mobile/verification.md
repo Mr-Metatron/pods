@@ -1,8 +1,8 @@
-# 当前适配候选验证记录
+# 范围收拢阶段验证记录（源 A）
 
 日期：2026-11-24。产品源码固定为 [f427564e41347ae8bbe4a3a7f8e01eccadc18aa0](https://github.com/Mr-Metatron/pods/commit/f427564e41347ae8bbe4a3a7f8e01eccadc18aa0)，上游比较基线为 `349be73c8bc2a3340e2b6187df1c0c676b63be82`。本报告和固定源码的 APKBUILD 放在后续文档与打包入口提交中；产品代码以该固定提交为准。
 
-当前状态是可审阅的最小适配候选。受影响控件及本地传输路径已完成下述验证；完整应用启动仍受上游镜像排序 schema 问题阻塞，等待用户对[两行最小补丁](proposals/startup-schema.patch)的明确批准。
+下列记录对应批准启动修复之前的源 A。用户随后已明确批准[两行 schema 补丁](proposals/startup-schema.patch)，当前分支已应用，并增加真实主窗口启动与既有导航验证。包含修复的新候选采用 APK pkgrel=1，使其可以从源 A 的 r0 升级；最终结果将在匹配新源码的构建与测试完成后更新。
 
 ## 范围审计
 

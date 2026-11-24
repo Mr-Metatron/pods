@@ -18,7 +18,7 @@ docker info
 stat -c '%U %G %a %n' /var/run/docker.sock
 ```
 
-完整启动当前受问题清单中的 schema 问题阻塞；先取得用户对最小补丁的明确批准，再验证以下端到端项目。以 `mobile` 用户启动 Pods，保留上游欢迎文案；中文会话只要求已有译文及本轮新增移动控件译文正确加载。创建本机 Docker 连接，核对连接地址与实际 socket。rootless 环境核对 `$XDG_RUNTIME_DIR/docker.sock`，已有保存连接应仍使用原地址。
+问题清单中的两行启动 schema 修复已获用户明确批准并应用；下述手机端到端项目仍需实机验证。以 `mobile` 用户启动 Pods，保留上游欢迎文案；中文会话只要求已有译文及本轮新增移动控件译文正确加载。创建本机 Docker 连接，核对连接地址与实际 socket。rootless 环境核对 `$XDG_RUNTIME_DIR/docker.sock`，已有保存连接应仍使用原地址。
 
 ## Socket 授权与失败恢复
 
