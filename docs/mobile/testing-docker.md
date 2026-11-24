@@ -57,6 +57,16 @@ Alpine 的现有进程列表功能还需要宿主 `procps-ng` 的 `ps`，原生 
 
 这项检查覆盖现有exec连接和本次触屏辅助入口。原有terminal commit与会话退出逻辑保持不变；真实手机的中文preedit、软键盘显示/隐藏和触屏事件交付仍需实机验证。
 
+## 源 S / r2 的最终结果
+
+产品与测试源码为 `27802b3ef04e69b582355a62eba1461dc8cb90bb`，包版本为 `3.3.0_git20261124-r2`。[原生CI](https://github.com/Mr-Metatron/pods/actions/runs/45385035150)的两架构契约检查均以UID1000通过12项；x86_64另以UID1001通过Docker28.0.4的只读连接。ARM的CI Docker步骤为skipped，其真实daemon检查由下面的完整系统客体执行。
+
+匹配的ARM artifact `14916304845` 在Alpine3.24.4、Linux6.18.60-0-virt、4096字节页的独立QEMU中签名安装。UID1000的12项契约0.50秒通过；真实Docker29.9.3只读连接0.32秒通过，读取时三类资源均为空。
+
+同一制品的终端检查在独立socket `/run/pods-ui-terminal.sock`（0660 root:1000）上通过X11和Wayland两组，分别17.50秒和17.32秒。脚本离线导入匹配的Alpine镜像，只创建一个专用无网络容器；真实shell输入、剪贴板、五个辅助键字节、Ctrl+C与五视口行列同步均通过。VTE与容器的行列结果为30×39、30×40、14×72、10×40、40×113，视口顺序与上节一致。脚本只清理自建资源。
+
+ARM正式包安装、完整Wayland界面、契约、只读连接及真实终端阶段均退出0，客体只读重新挂载并正常关机。交付ZIP的 `evidence/arm64-qemu/out/scoped-docker-aarch64/` 和 `out/live-terminal/` 保存原始日志；包、公钥与输入来源见[最终报告](verification.md)。这轮真实daemon检查覆盖只读连接和exec终端，其他原有Docker业务流程依照[设备验收表](device-acceptance.md)在手机上记录。
+
 ## 源 C / r1 的历史结果
 
 该轮产品源码为 `20ed3a2f6ced56710d8c3588c238b61e66d90f99`，原生包版本 `3.3.0_git20261124-r1`。[Native Alpine CI](https://github.com/Mr-Metatron/pods/actions/runs/45345743799) 的原生 x86_64 与 aarch64 构建、安装和普通用户契约测试全部通过，每架构 12 passed。x86_64 的真实 Docker 28.0.4 只读 smoke 通过，读取到 1 个容器、7 个镜像、0 个卷；没有修改这些资源。

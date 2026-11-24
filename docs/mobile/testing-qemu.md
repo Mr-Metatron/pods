@@ -250,6 +250,44 @@ navigation. ARM64 application execution uses a separate guest with matching
 native APKs and test artifacts. Archived runs from broader earlier candidates
 are retained as experiments and are not gates for this mobile change.
 
+## Source S final ARM64 APK run
+
+Source `27802b3ef04e69b582355a62eba1461dc8cb90bb` was tested with the exact
+`3.3.0_git20261124-r2` APKs and matching harnesses from native CI run
+`45385035150`, artifact `14916304845`. The new ARM64 guest used Alpine 3.24.4,
+Linux 6.18.60-0-virt, 4096-byte pages, two virtual CPUs, 1536 MiB RAM, TCG and
+no network interface. The package signature, installed version, executable
+hash and `images.sort-attribute='id'` schema value were checked before tests.
+
+| Check, as guest UID 1000 | Result |
+| --- | --- |
+| Contract suite, including actual permission denial | 12 passed, 0.50 seconds |
+| Local Docker 29.9.3 read-only connection | 1 passed, 0.32 seconds; empty container, image and volume lists |
+| Complete GTK fixture group, native Wayland client | 1 passed, 840.89 seconds; 448 PNGs and 697 read-only fixture requests |
+| Live Docker terminal, X11 | 1 passed, 17.50 seconds; 7 PNGs |
+| Live Docker terminal, Wayland | 1 passed, 17.32 seconds; 7 PNGs |
+
+The full UI process had a preset 900-second budget. Its two-paint requirement,
+five-second individual paint deadline and geometry assertions were unchanged.
+This run included the final empty-image action height and all additional
+Welcome, filtered-list Show All and stopped-terminal Start scroll checks.
+The real terminal used the separate offline daemon/container described above;
+the five viewport sizes matched container `stty size` in both backends.
+
+All guest stages and QEMU exited with status zero. The guest remounted its root
+filesystem read-only and powered off before extraction. The 513 exported
+output files passed checksum verification, and all 462 PNGs decoded. Extraction
+warnings about preserving guest ownership on the host were retained; file
+content checks passed. Evidence is in the delivery ZIP under
+`evidence/arm64-qemu/`; exact package hashes and native EN/zh_CN results are in
+the [verification report](verification.md).
+
+This exact-APK result is separate from the earlier development debug run,
+which passed the complete EN/X11 group in 730.98 seconds with 448 PNGs and an
+explicit 1200-second process budget. Pixel 2 scaling, GPU, touch, software
+keyboard, Chinese preedit, Plasma Portal and power measurements remain device
+checks.
+
 ## Source C x86_64 run
 
 Source revision `20ed3a2f6ced56710d8c3588c238b61e66d90f99` was tested on
