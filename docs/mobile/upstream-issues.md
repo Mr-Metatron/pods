@@ -17,7 +17,7 @@ GLib-GIO-WARNING **: 05:29:15.345: Unable to look up enum nick ‘name’ via GT
 GLib-GIO-ERROR **: 05:29:15.348: The schema default value for key 'sort-attribute' in schema 'com.github.marhkb.Pods.view.panels.images' was rejected by the binding mapping function.
 ```
 
-工作区证据 `build-env/upstream-findings/schema-default-observed.log` 保存了当时输出的原文摘录。最初的循环 boot.log 已被后续测试覆盖，该摘录是保留的观察记录。当前 schema 已恢复上游的 `name`；scoped UI 测试读取该值并仅构造本次改动的独立控件，不覆盖设置来绕过完整启动失败。
+工作区证据 `build-env/upstream-findings/schema-default-observed.log` 保存了当时输出的原文摘录。最初的循环 boot.log 已被后续测试覆盖，该摘录是保留的观察记录。当前 schema 已恢复上游的 `name`；本轮测试准备中已读回该值；scoped UI 测试仅构造本次改动的独立控件，不覆盖设置来绕过完整启动失败。
 
 最小候选只改镜像 schema 中两行，完整可审阅文件为 [startup-schema.patch](proposals/startup-schema.patch)：
 

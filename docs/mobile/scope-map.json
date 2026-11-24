@@ -33,6 +33,10 @@
       "M-INPUT",
       "M-LAYOUT"
     ],
+    "packaging/alpine/APKBUILD": [
+      "M-NATIVE",
+      "M-LOCALE"
+    ],
     "packaging/alpine/APKBUILD.in": [
       "M-NATIVE",
       "M-LOCALE"

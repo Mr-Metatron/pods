@@ -1,0 +1,74 @@
+# Candidate recipe pinned to a fixed source commit.
+pkgname=pods
+pkgver=3.3.0_git20261124
+pkgrel=0
+pkgdesc="Manage Podman and Docker containers"
+url="https://github.com/marhkb/pods"
+arch="aarch64 x86_64"
+license="GPL-3.0-or-later"
+depends="adwaita-icon-theme ca-certificates dconf gsettings-desktop-schemas openssh-client-default procps-ng"
+makedepends="
+	blueprint-compiler
+	cargo>=1.92
+	desktop-file-utils
+	gettext-dev
+	glib-dev>=2.88
+	gtk4.0-dev>=4.22
+	gtksourceview5-dev
+	libadwaita-dev>=1.9
+	libxml2-utils
+	meson
+	ninja
+	pkgconf
+	python3
+	rust>=1.92
+	vte3-dev
+	"
+checkdepends="appstream-glib"
+subpackages="$pkgname-lang"
+# Dependencies are fetched during prepare(); build and check are offline.
+options="net"
+_commit=f427564e41347ae8bbe4a3a7f8e01eccadc18aa0
+source="pods-f427564e41347ae8bbe4a3a7f8e01eccadc18aa0.tar.gz::https://github.com/Mr-Metatron/pods/archive/f427564e41347ae8bbe4a3a7f8e01eccadc18aa0.tar.gz"
+builddir="$srcdir/$pkgname-$_commit"
+
+# Match the Cargo home selected by upstream's Meson build target.
+export CARGO_HOME="$builddir/output/cargo-home"
+# abuild sets its own Cargo defaults before loading this file. Separate knobs
+# keep the intended memory limits effective while allowing builder overrides.
+export CARGO_BUILD_JOBS="${PODS_BUILD_JOBS:-2}"
+export CARGO_PROFILE_RELEASE_DEBUG=0
+export CARGO_PROFILE_RELEASE_LTO="${PODS_RELEASE_LTO:-thin}"
+export CARGO_PROFILE_RELEASE_CODEGEN_UNITS="${PODS_RELEASE_CODEGEN_UNITS:-16}"
+
+prepare() {
+	default_prepare
+	cargo fetch --locked --target="$CTARGET"
+}
+
+build() {
+	export CARGO_NET_OFFLINE=true
+	abuild-meson \
+		-Dprofile=default \
+		. output
+	meson compile -C output
+}
+
+check() {
+	export CARGO_NET_OFFLINE=true
+	meson test --no-rebuild --print-errorlogs -C output \
+		validate-desktop validate-appdata validate-gschema
+}
+
+package() {
+	DESTDIR="$pkgdir" meson install --no-rebuild -C output
+	# Plasma commonly uses zh_CN, while upstream names its catalog zh_Hans.
+	# Alias only this application's catalog, preserving shared locale directories.
+	mkdir -p "$pkgdir/usr/share/locale/zh_CN/LC_MESSAGES"
+	ln -s ../../zh_Hans/LC_MESSAGES/pods.mo \
+		"$pkgdir/usr/share/locale/zh_CN/LC_MESSAGES/pods.mo"
+}
+
+sha512sums="
+4987f48784c2489c2a9ca276c152114e96c540af621bea520761407df646536f9c6ae5b1149af6b16ae1499a1c54c8c43c422ee19a8a9f4a7e3d9eb16b37aedb  pods-f427564e41347ae8bbe4a3a7f8e01eccadc18aa0.tar.gz
+"

@@ -149,13 +149,14 @@ for this scoped mobile change.
 
 ## Scoped x86_64 run
 
-The final local run uses the scope-reduced working tree following candidate
-`8d5ceee8`, the unchanged upstream schema default `images.sort-attribute='name'`,
-and a test executable built with `cargo test --offline --locked --bin pods
---no-run --target-dir _build/src`. Its SHA-256 is:
+The scoped source revision `f427564e41347ae8bbe4a3a7f8e01eccadc18aa0` was
+tested with the unchanged upstream schema default
+`images.sort-attribute='name'`. The executable was built with
+`cargo test --offline --locked --bin pods --no-run --target-dir _build/src`.
+Its SHA-256 is:
 
 ```text
-d7d3beb5364f909ec87bea89f1480403515841cc8bab633a681e67afc43d0c83
+0b9315882c3c747f5a2d2ac50c58600aca225637f5840b8ef1e37fdb42e80ec5
 ```
 
 The test runs as guest UID 1000 with `G_DEBUG=fatal-criticals`. It uses GTK
@@ -163,11 +164,40 @@ The test runs as guest UID 1000 with `G_DEBUG=fatal-criticals`. It uses GTK
 for this scoped run start with `/out/mobile-ui-`; earlier `/out/ui-` directories
 belong to archived experiments.
 
+| GTK backend | Locale | Result | Guest evidence |
+| --- | --- | --- | --- |
+| X11 / Xvfb | `C.UTF-8` | Passed; 27 screenshots | `/out/mobile-ui-C.UTF-8.log` and matching directory |
+| X11 / Xvfb | `zh_CN.UTF-8`, `LANGUAGE` unset | Passed; 27 screenshots | `/out/mobile-ui-zh_CN.UTF-8.log` and matching directory |
+| Wayland / nested Weston with virtual keyboard and pointer | `C.UTF-8` | Passed; 27 screenshots | `/out/mobile-ui-wayland.log` and matching directory |
+
+All three runs used the same executable and resource files. The guest reported
+`QEMU_UI_TEST_EXIT=0`, remounted its filesystem read-only and powered off without
+filesystem I/O errors. The exported 81 PNG files were decoded successfully and
+representative portrait, reduced-height, desktop and popup images were inspected.
+
 The terminal toolbar's minimum width is 338 pixels after the padding adjustment
 limited to its new buttons. All six targets remain at least 44 by 44 pixels at
 360 and 366 pixel portrait widths and 651 pixel landscape width. The toolbar
 is hidden at 1024 pixels. The suggestion list requests a minimum of 58 and a
 natural height of 200 pixels; its parent stack now uses the visible page's height
-instead of the hidden status page's larger height. In the English run, the
-Podman and Docker help popovers measure 320 by 248 and 288 by 248 pixels,
-respectively, with independently scrollable 220-pixel content areas.
+instead of the hidden status page's larger height.
+
+The help popup checks use `compute_bounds` on the actual GTK content frame,
+including padding and borders. Native Wayland popup surfaces reserve additional
+space for transparent shadows. The measured frame dimensions were:
+
+| Backend and locale | Podman help frame | Docker help frame | Scrollable height |
+| --- | --- | --- | --- |
+| X11, English | 320 × 236 | 288 × 236 | 220 |
+| X11, Chinese | 239 × 236 | 287 × 236 | 220 |
+| Wayland, English | 322 × 238 | 290 × 238 | 220 |
+
+These frames fit the tested 366 × 651, 366 × 300 and 651 × 366 viewports. The
+Wayland native surfaces measure 368 × 296 and 336 × 296 respectively; their
+transparent margins are retained in the screenshots and excluded from the
+content-clipping assertion. Each help text was scrolled to its end and captured.
+
+This record verifies the affected widgets under x86_64 emulation. ARM64 widget
+execution using the APK and harness from the same source revision is a separate
+pending result. Full application startup and Pixel 2 device acceptance remain
+as described above.
