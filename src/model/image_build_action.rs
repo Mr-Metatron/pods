@@ -76,7 +76,7 @@ impl ImageBuildAction {
             Ok(stream) => stream::Abortable::new(stream, abort_registration).boxed(),
             Err(e) => {
                 log::error!("Error on building image: {e}");
-                futures::stream::once(async move { Err(e) }).boxed()
+                futures::stream::empty().boxed()
             }
         })
         .on_next(clone!(

@@ -100,8 +100,9 @@ impl ContainerCopyToAction {
             async move {
                 future::Abortable::new(
                     async move {
-                        let mut ar =
-                            tokio_tar::Builder::new(engine::archive::temporary_file().await?);
+                        let mut ar = tokio_tar::Builder::new(tokio::fs::File::from_std(
+                            engine::archive::temporary_file()?,
+                        ));
                         let host_path = PathBuf::from(host_path);
                         let file_name = host_path.file_name();
                         if directory {
@@ -126,9 +127,7 @@ impl ContainerCopyToAction {
         .defer(clone!(
             #[weak(rename_to = obj)]
             self,
-            move |result| if obj.state() != model::ActionState::Cancelled
-                && let Ok(result) = result
-            {
+            move |result| if let Ok(result) = result {
                 match result {
                     Ok(ar) => {
                         obj.set_ongoing_state(ContainerCopyToActionOngoingState::UnwrapTar);
@@ -145,9 +144,7 @@ impl ContainerCopyToAction {
                         .defer(clone!(
                             #[weak]
                             obj,
-                            move |result| if obj.state() != model::ActionState::Cancelled
-                                && let Ok(result) = result
-                            {
+                            move |result| if let Ok(result) = result {
                                 match result {
                                     Ok(buf) => {
                                         obj.set_ongoing_state(
@@ -175,18 +172,8 @@ impl ContainerCopyToAction {
                                         .defer(clone!(
                                             #[weak]
                                             obj,
-                                            move |result| if obj.state()
-                                                != model::ActionState::Cancelled
-                                                && let Ok(result) = result
-                                            {
-                                                match result {
-                                                    Ok(()) => {
-                                                        obj.set_state(model::ActionState::Finished)
-                                                    }
-                                                    Err(error) => {
-                                                        obj.set_failed(&error.to_string())
-                                                    }
-                                                }
+                                            move |result| if result.is_ok() {
+                                                obj.set_state(model::ActionState::Finished);
                                             }
                                         ));
                                     }

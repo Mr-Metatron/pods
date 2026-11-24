@@ -14,8 +14,11 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libxml2-utils
 
+      - name: Install cargo-vendor-filterer
+        run: cargo install cargo-vendor-filterer
+
       - name: Create vendored sources
-        run: build-aux/dist-vendor.sh . .
+        run: build-aux/dist-vendor.sh ../ src
         shell: bash
 
       - name: Archive repository

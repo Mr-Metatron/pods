@@ -296,25 +296,9 @@ impl Container {
                             }),
                         )
                         .await
-                        .map_err(|error| {
-                            let needs_procps = matches!(
-                                &error,
-                                bollard::errors::Error::DockerResponseServerError {
-                                    status_code: 500,
-                                    message,
-                                } if message.contains("bad -o argument 'pcpu'")
-                            );
-                            let error = anyhow::Error::from(error);
-                            if needs_procps {
-                                error.context(crate::gettext::gettext(
-                                    "Install procps-ng on the Docker host to view container processes. Its ps command provides the required CPU percentage field.",
-                                ))
-                            } else {
-                                error
-                            }
-                        })
                 }
             }
+            .map_err(anyhow::Error::from)
             .map_ok(Into::into)
             .boxed(),
             Self::Podman(container) => container

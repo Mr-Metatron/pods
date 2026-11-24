@@ -155,12 +155,9 @@ impl Containers {
                         }
                     };
 
-                    // Do not retain CPU counters for containers that have stopped or
-                    // disappeared. A resumed container starts with a fresh sample.
-                    let mut previous_cpu_stats = std::mem::take(&mut last_cpu_stats);
                     let stats_futures = containers.into_iter().filter_map(|container| {
                         let id = container.id?;
-                        let prev_cpu_stats = previous_cpu_stats.remove(&id);
+                        let prev_cpu_stats = last_cpu_stats.remove(&id);
 
                         Some(async move {
                             let mut stats_stream = docker.stats(

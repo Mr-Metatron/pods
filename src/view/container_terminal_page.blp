@@ -73,6 +73,7 @@ template $PdsContainerTerminalPage: Adw.NavigationPage {
       Box touch_controls {
         styles [
           "toolbar",
+          "terminal-keys",
         ]
 
         spacing: 3;
@@ -85,6 +86,7 @@ template $PdsContainerTerminalPage: Adw.NavigationPage {
           hexpand: true;
           label: _("Esc");
           tooltip-text: _("Escape");
+          width-request: 44;
 
           accessibility {
             label: _("Escape");
@@ -98,6 +100,7 @@ template $PdsContainerTerminalPage: Adw.NavigationPage {
           hexpand: true;
           label: _("Tab");
           tooltip-text: _("Tab (Completion)");
+          width-request: 44;
 
           accessibility {
             label: _("Tab (Completion)");
@@ -111,6 +114,7 @@ template $PdsContainerTerminalPage: Adw.NavigationPage {
           hexpand: true;
           label: _("Ctrl+C");
           tooltip-text: _("Interrupt Command");
+          width-request: 44;
 
           accessibility {
             label: _("Interrupt Command");

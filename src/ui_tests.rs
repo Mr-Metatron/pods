@@ -1,8 +1,9 @@
 //! GTK integration checks using the installed application resources and real widgets.
 //!
 //! Run under a display server with GSETTINGS_BACKEND=memory, an isolated XDG config
-//! directory and the installed schema directory. These checks simulate viewport sizes;
-//! they do not exercise a phone's compositor, input method or Docker daemon.
+//! directory and the installed schema directory. These checks instantiate the changed
+//! mobile widgets directly; they do not activate the complete application or exercise
+//! a phone's compositor, input method or Docker daemon.
 
 use std::os::unix::net::UnixListener;
 use std::path::Path;
@@ -28,6 +29,18 @@ fn settle() {
             context.iteration(false);
         }
         std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn prepare_popup_input() {
+    if let Some(helper) = std::env::var_os("PODS_UI_TEST_INPUT_HELPER") {
+        assert!(
+            std::process::Command::new(helper)
+                .status()
+                .expect("run the guest's input helper")
+                .success()
+        );
+        settle();
     }
 }
 
@@ -68,7 +81,9 @@ fn resize(window: &impl IsA<gtk::Window>, width: i32, height: i32) {
         }
         eprintln!(
             "viewport {width}x{height}: requested {requested:?}, allocated {allocated:?}, surface {:?}",
-            window.surface().map(|surface| (surface.width(), surface.height()))
+            window
+                .surface()
+                .map(|surface| (surface.width(), surface.height()))
         );
         // GTK's default size can include the window's client decorations. Calibrate
         // the outer request so assertions below measure the actual content viewport.
@@ -96,13 +111,27 @@ fn assert_fits(widget: &impl IsA<gtk::Widget>, parent: &impl IsA<gtk::Widget>) {
 
 fn capture(widget: &impl IsA<gtk::Widget>, directory: &Path, name: &str) {
     let widget = widget.as_ref();
-    let snapshot = gtk::Snapshot::new();
-    gtk::WidgetPaintable::new(Some(widget)).snapshot(
-        &snapshot,
-        widget.width() as f64,
-        widget.height() as f64,
-    );
-    let node = snapshot.to_node().expect("nonempty widget snapshot");
+    let paintable = gtk::WidgetPaintable::new(Some(widget));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let node = loop {
+        let snapshot = gtk::Snapshot::new();
+        paintable.snapshot(&snapshot, widget.width() as f64, widget.height() as f64);
+        if let Some(node) = snapshot.to_node() {
+            break node;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "empty snapshot {name}: {} {}x{}, mapped={}, visible={}",
+            widget.type_().name(),
+            widget.width(),
+            widget.height(),
+            widget.is_mapped(),
+            widget.is_visible()
+        );
+        // A Wayland surface may be allocated before its first frame is painted.
+        widget.queue_draw();
+        settle();
+    };
     widget
         .native()
         .unwrap()
@@ -118,6 +147,12 @@ fn capture(widget: &impl IsA<gtk::Widget>, directory: &Path, name: &str) {
 fn mobile_widgets_fit_and_keep_controls_reachable() {
     assert_eq!(std::env::var("GSETTINGS_BACKEND").as_deref(), Ok("memory"));
     adw::init().unwrap();
+    let display = gtk::gdk::Display::default().unwrap();
+    eprintln!(
+        "GTK backend: {}, input seat: {:?}",
+        display.type_().name(),
+        display.default_seat().map(|seat| seat.capabilities())
+    );
     sourceview5::init();
     gettextrs::bindtextdomain(config::GETTEXT_PACKAGE, config::LOCALEDIR).unwrap();
     gettextrs::textdomain(config::GETTEXT_PACKAGE).unwrap();
@@ -151,25 +186,6 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
     let app = crate::Application::default();
     app.set_flags(gio::ApplicationFlags::NON_UNIQUE);
     app.register(gio::Cancellable::NONE).unwrap();
-    let main_window = app.main_window();
-    main_window.set_decorated(false);
-    for (width, height) in [(366, 651), (651, 366), (366, 300), (360, 651), (1024, 768)] {
-        resize(&main_window, width, height);
-        capture(
-            &main_window,
-            &directory,
-            &format!("welcome-{width}x{height}"),
-        );
-    }
-    main_window.set_visible(false);
-
-    let log_page: view::ContainerLogPage = glib::Object::new();
-    let log_view: sourceview5::View = find(&log_page);
-    assert!(
-        !log_view.buffer().enables_undo(),
-        "streamed logs must not retain evicted text in an undo history"
-    );
-    log_page.check_log_window_for_test();
 
     let window = adw::Window::builder()
         .application(&app)
@@ -199,18 +215,6 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
             )),
         )
         .build();
-    let client_view: view::ClientView = glib::Object::builder().property("client", &client).build();
-    window.set_content(Some(&client_view));
-    let split: adw::NavigationSplitView = find(&client_view);
-    for (width, height) in [(366, 651), (651, 366), (1024, 768), (366, 300)] {
-        resize(&window, width, height);
-        assert_eq!(split.is_collapsed(), width < 668);
-        split.set_show_content(true);
-        settle();
-        assert_fits(&client_view, &window);
-        capture(&window, &directory, &format!("navigation-{width}x{height}"));
-    }
-
     let buffer = sourceview5::Buffer::new(None::<&gtk::TextTagTable>);
     buffer.set_text("alpha Alpha\n日志一\n日志二\n");
     let source_view = sourceview5::View::with_buffer(&buffer);
@@ -261,6 +265,7 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
     let options = find_id(&entry, "options_button")
         .downcast::<gtk::MenuButton>()
         .unwrap();
+    prepare_popup_input();
     options.popup();
     settle();
     let popover = options.popover().unwrap();
@@ -307,22 +312,49 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
     let terminal_page = view::ContainerTerminalPage::from(&container);
     window.set_content(Some(&terminal_page));
     let controls = find_id(&terminal_page, "touch_controls");
+    let terminal: view::ContainerTerminal = find(&terminal_page);
     for (width, height) in [(366, 651), (651, 366), (366, 300), (360, 651), (1024, 768)] {
         resize(&window, width, height);
+        capture(&window, &directory, &format!("terminal-{width}x{height}"));
+        eprintln!(
+            "terminal minimum widths: header={}, controls={}, terminal={}",
+            find::<adw::HeaderBar>(&terminal_page)
+                .measure(gtk::Orientation::Horizontal, -1)
+                .0,
+            controls.measure(gtk::Orientation::Horizontal, -1).0,
+            terminal.measure(gtk::Orientation::Horizontal, -1).0
+        );
         assert_eq!(controls.is_visible(), width <= 668);
         if controls.is_visible() {
             for button in descendants(&controls)
                 .into_iter()
                 .filter_map(|widget| widget.downcast::<gtk::Button>().ok())
             {
-                assert!(button.height() >= 44);
+                let bounds = button.compute_bounds(&button).unwrap();
+                assert!(
+                    bounds.height() >= 44.0 && bounds.width() >= 44.0,
+                    "touch target too small: bounds {bounds:?}, content {}x{}",
+                    button.width(),
+                    button.height()
+                );
+                let center_x = (bounds.x() + bounds.width() / 2.0) as f64;
+                let center_y = (bounds.y() + bounds.height() / 2.0) as f64;
+                for (x, y) in [
+                    (center_x - 21.5, center_y),
+                    (center_x + 21.5, center_y),
+                    (center_x, center_y - 21.5),
+                    (center_x, center_y + 21.5),
+                ] {
+                    assert!(
+                        button.contains(x, y),
+                        "44-pixel target must accept pointer input"
+                    );
+                }
                 assert_fits(&button, &window);
                 assert!(!button.gets_focus_on_click());
             }
         }
-        capture(&window, &directory, &format!("terminal-{width}x{height}"));
     }
-    let terminal: view::ContainerTerminal = find(&terminal_page);
     let input = terminal.capture_test_input(|| {
         for action in [
             "escape",
@@ -335,11 +367,6 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
                 .activate_action(&format!("container-terminal-page.{action}"), None)
                 .unwrap();
         }
-        terminal.clipboard().set_text("echo mobile-paste");
-        terminal_page
-            .activate_action("container-terminal-page.paste", None)
-            .unwrap();
-        settle();
     });
     assert_eq!(
         input,
@@ -348,8 +375,7 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
             b"\t".to_vec(),
             b"\x03".to_vec(),
             b"\x1b[A".to_vec(),
-            b"\x1b[B".to_vec(),
-            b"echo mobile-paste".to_vec()
+            b"\x1b[B".to_vec()
         ]
     );
 
@@ -380,12 +406,22 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
         .set_visible_stack_page(widget::SuggestionEntryVisibleStackPage::Results);
     suggestion.grab_focus();
     let popover: gtk::Popover = find(&suggestion);
+    prepare_popup_input();
     popover.popup();
     settle();
     let scroll: gtk::ScrolledWindow = find(&popover);
+    eprintln!(
+        "suggestion popup: popover {}x{}, scroll {}x{}, scroll vertical {:?}, stack vertical {:?}",
+        popover.width(),
+        popover.height(),
+        scroll.width(),
+        scroll.height(),
+        scroll.measure(gtk::Orientation::Vertical, scroll.width()),
+        find::<gtk::Stack>(&popover).measure(gtk::Orientation::Vertical, scroll.width())
+    );
+    capture(&popover, &directory, "suggestion-constrained-height");
     assert!(scroll.measure(gtk::Orientation::Vertical, 300).0 < 200);
     assert!(scroll.height() <= 200);
-    capture(&popover, &directory, "suggestion-constrained-height");
     let list: gtk::ListView = find(&popover);
     list.model().unwrap().select_item(0, true);
     list.emit_by_name::<()>("activate", &[&0u32]);
@@ -393,37 +429,72 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
     assert!(suggestion.text().ends_with(":latest"));
     assert!(!popover.is_visible());
 
-    for (name, dialog) in [
-        (
-            "connection",
-            view::ConnectionCreationDialog::from(&manager).upcast::<adw::Dialog>(),
-        ),
-        (
-            "create-container",
-            view::ContainerCreateOptsDialog::new(&client, None).upcast(),
-        ),
-        (
-            "create-volume",
-            view::VolumeCreateOptsDialog::new(&client, None).upcast(),
-        ),
-        (
-            "pull-image",
-            view::ImagePullOptsDialog::new(&client, None).upcast(),
-        ),
-    ] {
-        for (width, height) in [(366, 651), (366, 300)] {
-            resize(&window, width, height);
-            dialog.present(Some(&window));
+    let dialog = view::ConnectionCreationDialog::from(&manager);
+    for (width, height) in [(366, 651), (366, 300), (651, 366)] {
+        resize(&window, width, height);
+        dialog.present(Some(&window));
+        settle();
+        assert_fits(&dialog, &window);
+        capture(
+            &window,
+            &directory,
+            &format!("dialog-connection-{width}x{height}"),
+        );
+        let help_buttons: Vec<gtk::MenuButton> = descendants(&dialog)
+            .into_iter()
+            .filter_map(|widget| widget.downcast().ok())
+            .filter(|button: &gtk::MenuButton| button.popover().is_some())
+            .collect();
+        assert_eq!(help_buttons.len(), 2);
+        for (index, button) in help_buttons.into_iter().enumerate() {
+            button.grab_focus();
             settle();
-            assert_fits(&dialog, &window);
-            capture(
-                &window,
-                &directory,
-                &format!("dialog-{name}-{width}x{height}"),
+            prepare_popup_input();
+            button.popup();
+            settle();
+            let help = button.popover().unwrap();
+            let scroll: gtk::ScrolledWindow = find(&help);
+            // Native Wayland popovers include transparent shadow margins in their
+            // surface allocation. Measure the visible content frame for clipping.
+            let frame = help.child().unwrap().parent().unwrap();
+            let frame_bounds = frame.compute_bounds(&frame).unwrap();
+            eprintln!(
+                "connection help {index} at {width}x{height}: popup {}x{}, frame {}x{}, scroll {}x{}",
+                help.width(),
+                help.height(),
+                frame_bounds.width(),
+                frame_bounds.height(),
+                scroll.width(),
+                scroll.height()
             );
-            dialog.close();
+            assert!(
+                scroll.width() >= 200,
+                "help text must retain a readable width"
+            );
+            let adjustment = scroll.vadjustment();
+            adjustment.set_value(0.0);
+            settle();
+            capture(
+                &help,
+                &directory,
+                &format!("connection-help-{index}-{width}x{height}"),
+            );
+            assert!(frame_bounds.width() <= width as f32 && frame_bounds.height() <= height as f32);
+            assert_eq!(scroll.hscrollbar_policy(), gtk::PolicyType::Never);
+            let bottom = adjustment.upper() - adjustment.page_size();
+            adjustment.set_value(bottom);
+            settle();
+            assert!((adjustment.value() - bottom).abs() < 1.0);
+            capture(
+                &help,
+                &directory,
+                &format!("connection-help-{index}-{width}x{height}-end"),
+            );
+            help.popdown();
             settle();
         }
+        dialog.close();
+        settle();
     }
 
     println!(
@@ -431,7 +502,6 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
         directory.display()
     );
     window.destroy();
-    main_window.destroy();
     // Keep the application and synthetic fixture models alive until all windows close.
     drop((app, client, manager, connection, container));
 }

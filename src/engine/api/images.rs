@@ -28,15 +28,12 @@ impl Images {
     ) -> anyhow::Result<BoxStream<'_, anyhow::Result<engine::dto::ImageBuildReport>>> {
         match self {
             Self::Docker(docker) => {
+                let body = engine::archive::directory(std::path::Path::new(&opts.path))?;
+
                 Ok(async_stream::stream! {
-                    let body = match engine::archive::directory(std::path::Path::new(&opts.path)).await {
-                        Ok(file) => file,
-                        Err(error) => {
-                            yield Err(anyhow::Error::from(error));
-                            return;
-                        }
-                    };
                     let mut image_id = None;
+                    // after Docker sends the "aux" elem there are 2 elems remaining before we can close the stream
+                    let mut elem_countdown = 2;
 
                     let mut stream =
                         docker.build_image(opts, None, Some(bollard::body_try_stream(ReaderStream::new(body))));
@@ -51,23 +48,24 @@ impl Images {
                                 if let Some(error_detail) = item.error_detail {
                                     yield Ok(engine::dto::ImageBuildReport::Error {
                                         message: error_detail.message.unwrap_or_default(),
-                                    });
-                                    return;
+                                    })
                                 } else if let Some(line) = item.stream {
                                     yield Ok(engine::dto::ImageBuildReport::Streaming { line })
                                 }
+
+                                if image_id.is_some() {
+                                    elem_countdown -= 1;
+                                    if elem_countdown == 0 {
+                                        break;
+                                    }
+                                }
                             }
-                            Err(e) => {
-                                yield Err(anyhow::Error::from(e));
-                                return;
-                            }
+                            Err(e) => yield Err(anyhow::Error::from(e)),
                         }
                     }
 
                     if let Some(image_id) = image_id {
                         yield Ok(engine::dto::ImageBuildReport::Finished { image_id })
-                    } else {
-                        yield Err(anyhow::anyhow!("The image build ended without an image ID"))
                     }
                 }
                 .boxed())
@@ -148,45 +146,35 @@ impl Images {
     ) -> BoxStream<'_, anyhow::Result<engine::dto::ImagePullReport>> {
         match self {
             Self::Docker(docker) => async_stream::stream! {
-                let reference = opts.reference.clone();
-                let mut received_response = false;
+                let mut image_id = None;
+
                 let mut stream = docker.create_image(Some(opts), None, None);
 
                 while let Some(item) = stream.next().await {
                     match item {
                         Ok(item) => {
-                            received_response = true;
                             if let Some(error_detail) = item.error_detail {
                                 yield Ok(engine::dto::ImagePullReport::Error {
                                     message: error_detail.message.unwrap_or_default(),
                                 });
-                                return;
                             } else if let Some(line) = item.status {
                                 yield Ok(engine::dto::ImagePullReport::Streaming {
                                     line: format!("{line}\n"),
                                 });
+
+                                if image_id.is_some() {
+                                    break;
+                                } else if line.starts_with("Digest: ") {
+                                    image_id = Some(line.split_at(8).1.to_owned());
+                                }
                             }
                         }
-                        Err(error) => {
-                            yield Err(anyhow::Error::from(error));
-                            return;
-                        }
+                        Err(e) => yield Err(anyhow::Error::from(e)),
                     }
                 }
 
-                if !received_response {
-                    yield Err(anyhow::anyhow!("The image pull ended without a response"));
-                    return;
-                }
-
-                // The registry manifest digest printed by pull is different
-                // from the local image config ID used by the image list.
-                match docker.inspect_image(&reference).await {
-                    Ok(image) => match image.id {
-                        Some(image_id) => yield Ok(engine::dto::ImagePullReport::Finished { image_id }),
-                        None => yield Err(anyhow::anyhow!("The pulled image has no image ID")),
-                    },
-                    Err(error) => yield Err(anyhow::Error::from(error)),
+                if let Some(image_id) = image_id {
+                    yield Ok(engine::dto::ImagePullReport::Finished { image_id })
                 }
             }
             .boxed(),

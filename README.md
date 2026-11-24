@@ -69,12 +69,7 @@ Keep in mind that you have to manually repeat this procedure to update the appli
 
 ### Alpine Linux and postmarketOS
 
-A native APKBUILD is available for Alpine 3.24 and compatible postmarketOS
-systems on aarch64 and x86_64. It installs the application menu entry, icons,
-translations and GSettings schemas using the existing Meson install rules.
-See [native packaging](packaging/alpine/README.md) for a checksum-pinned source
-snapshot, build and installation instructions, and the Pixel 2 verification
-requirements. Flatpak is optional.
+For native aarch64 and x86_64 packages, see the [Alpine and postmarketOS packaging instructions](packaging/alpine/README.md).
 
 ## 🏗️ Developing
 
@@ -113,15 +108,10 @@ The following packages are required to build Pods:
 - meson >= 0.59
 - ninja
 - appstream-glib (for checks)
-- Rust and Cargo >= 1.92
-- blueprint-compiler >= 0.20
-- Python >= 3.11 (also used by the packaging helper)
-- gettext and libintl development files
-- libxml2 utilities (for GResource XML preprocessing)
-- desktop-file-utils (for checks)
-- glib2 / GIO >= 2.88
-- gtk4 >= 4.22
-- libadwaita >= 1.9
+- cargo
+- glib2 >= 2.66
+- gtk4 >= 4.18
+- libadwaita >= 1.7
 - gtksourceview > 4.90
 - vte-2.91-gtk4 >= 0.70
 
@@ -130,20 +120,9 @@ The following packages are required to build Pods:
 ```shell
 git clone https://github.com/marhkb/pods.git
 cd pods
-meson setup _build --prefix=/usr/local
-meson compile -C _build
-meson test -C _build --print-errorlogs
-meson install -C _build
+meson _build --prefix=/usr/local
+ninja -C _build install
 ```
-
-Builds and tests use the checked-in Cargo.lock and inherit the caller's Cargo
-home and linker configuration. Fetch dependencies once with `cargo fetch --locked`
-and configure with `-Dcargo-offline=true` to build without Cargo network access.
-For a vendored source distribution, Cargo reads the included `.cargo/config.toml`.
-Use `-Dcargo-clippy=false` when the toolchain has no Clippy component; unit and
-metadata tests still run. `-Dcargo-target=TRIPLE` forwards an explicit target to
-Cargo when an appropriate cross toolchain and target pkg-config environment are
-already configured. Native Alpine builds need no explicit target option.
 
 ## 🙌 Help translate Pods
 

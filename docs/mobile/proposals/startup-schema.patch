@@ -1,0 +1,18 @@
+diff --git a/data/com.github.marhkb.Pods.gschema.xml.in b/data/com.github.marhkb.Pods.gschema.xml.in
+index e1169923..7f239dc1 100644
+--- a/data/com.github.marhkb.Pods.gschema.xml.in
++++ b/data/com.github.marhkb.Pods.gschema.xml.in
+@@ -151,11 +151,11 @@
+     </key>
+     <key name="sort-attribute" type="s">
+       <choices>
+-        <choice value='name'/>
++        <choice value='id'/>
+         <choice value='tag'/>
+         <choice value='containers'/>
+       </choices>
+-      <default>'name'</default>
++      <default>'id'</default>
+       <summary>Sort attribute for images</summary>
+       <description></description>
+     </key>

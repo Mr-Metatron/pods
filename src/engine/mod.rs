@@ -41,9 +41,7 @@ pub(crate) enum Engine {
 impl Engine {
     pub(crate) async fn new<U: AsRef<str>>(uri: U) -> anyhow::Result<Self> {
         socket::check_local_socket(uri.as_ref()).await?;
-        let docker = bollard::Docker::connect_with_host(uri.as_ref())?
-            .negotiate_version()
-            .await?;
+        let docker = bollard::Docker::connect_with_host(uri.as_ref())?;
 
         match docker
             .version()

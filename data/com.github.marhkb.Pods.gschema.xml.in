@@ -151,11 +151,11 @@
     </key>
     <key name="sort-attribute" type="s">
       <choices>
-        <choice value='id'/>
+        <choice value='name'/>
         <choice value='tag'/>
         <choice value='containers'/>
       </choices>
-      <default>'id'</default>
+      <default>'name'</default>
       <summary>Sort attribute for images</summary>
       <description></description>
     </key>

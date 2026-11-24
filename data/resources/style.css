@@ -60,6 +60,12 @@ entry button {
   padding: 0 3px;
 }
 
+.terminal-keys button {
+  min-width: 0;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
 button.medium {
   -gtk-icon-size: 24px;
   padding: 6px;

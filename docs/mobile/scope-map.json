@@ -1,0 +1,154 @@
+{
+  "baseline": "349be73c8bc2a3340e2b6187df1c0c676b63be82",
+  "design": "design.md",
+  "files": {
+    ".github/workflows/native.yml": [
+      "M-NATIVE",
+      "M-VERIFY"
+    ],
+    "Cargo.lock": [
+      "M-MEMORY"
+    ],
+    "Cargo.toml": [
+      "M-MEMORY",
+      "M-LOCAL"
+    ],
+    "README.md": [
+      "M-NATIVE"
+    ],
+    "build-aux/ci-alpine.sh": [
+      "M-NATIVE",
+      "M-VERIFY"
+    ],
+    "build-aux/prepare-alpine.py": [
+      "M-NATIVE"
+    ],
+    "build-aux/qemu-initramfs.py": [
+      "M-VERIFY"
+    ],
+    "build-aux/run-qemu-tests.sh": [
+      "M-VERIFY"
+    ],
+    "data/resources/style.css": [
+      "M-INPUT",
+      "M-LAYOUT"
+    ],
+    "packaging/alpine/APKBUILD.in": [
+      "M-NATIVE",
+      "M-LOCALE"
+    ],
+    "packaging/alpine/README.md": [
+      "M-NATIVE",
+      "M-VERIFY"
+    ],
+    "po/zh_Hans.po": [
+      "M-LOCALE"
+    ],
+    "src/engine/api/container.rs": [
+      "M-MEMORY"
+    ],
+    "src/engine/api/containers.rs": [
+      "M-MEMORY"
+    ],
+    "src/engine/api/images.rs": [
+      "M-MEMORY"
+    ],
+    "src/engine/archive.rs": [
+      "M-MEMORY"
+    ],
+    "src/engine/mod.rs": [
+      "M-LOCAL",
+      "M-MEMORY"
+    ],
+    "src/engine/socket.rs": [
+      "M-LOCAL"
+    ],
+    "src/main.rs": [
+      "M-VERIFY"
+    ],
+    "src/meson.build": [
+      "M-NATIVE"
+    ],
+    "src/model/container_copy_to_action.rs": [
+      "M-MEMORY"
+    ],
+    "src/rt.rs": [
+      "M-MEMORY"
+    ],
+    "src/ui_tests.rs": [
+      "M-LAYOUT",
+      "M-INPUT",
+      "M-VERIFY"
+    ],
+    "src/view/connection.rs": [
+      "M-LOCAL",
+      "M-LAYOUT"
+    ],
+    "src/view/connection_creation_dialog.blp": [
+      "M-LOCAL",
+      "M-LAYOUT",
+      "M-INPUT"
+    ],
+    "src/view/connection_creation_dialog.rs": [
+      "M-LOCAL",
+      "M-INPUT"
+    ],
+    "src/view/connections_sidebar.rs": [
+      "M-LOCAL",
+      "M-LAYOUT"
+    ],
+    "src/view/container_terminal.rs": [
+      "M-INPUT"
+    ],
+    "src/view/container_terminal_page.blp": [
+      "M-INPUT",
+      "M-LAYOUT"
+    ],
+    "src/view/container_terminal_page.rs": [
+      "M-INPUT"
+    ],
+    "src/view/mod.rs": [
+      "M-LOCAL"
+    ],
+    "src/view/window.rs": [
+      "M-LOCAL",
+      "M-LAYOUT"
+    ],
+    "src/widget/source_view_search_widget.blp": [
+      "M-LAYOUT",
+      "M-INPUT"
+    ],
+    "src/widget/suggestion_entry_row.blp": [
+      "M-INPUT"
+    ],
+    "src/widget/text_search_entry.blp": [
+      "M-LAYOUT",
+      "M-INPUT"
+    ],
+    "src/widget/text_search_entry.rs": [
+      "M-LAYOUT",
+      "M-INPUT"
+    ],
+    "tests/engine_contract.rs": [
+      "M-LOCAL",
+      "M-MEMORY",
+      "M-VERIFY"
+    ],
+    "tests/engine_live.rs": [
+      "M-LOCAL",
+      "M-VERIFY"
+    ],
+    "tests/qemu/guest-init.sh": [
+      "M-VERIFY"
+    ],
+    "tests/qemu/guest-ui-tests.sh": [
+      "M-VERIFY"
+    ],
+    "tests/qemu/guest-wayland-input.sh": [
+      "M-VERIFY"
+    ],
+    "tests/qemu/initramfs-init.sh": [
+      "M-VERIFY"
+    ]
+  }
+}

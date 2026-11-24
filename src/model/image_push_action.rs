@@ -115,7 +115,7 @@ impl ImagePushAction {
         .on_finish(clone!(
             #[weak(rename_to = obj)]
             self,
-            move || if obj.state() == model::ActionState::Ongoing {
+            move || if obj.state() != model::ActionState::Failed {
                 obj.set_state(model::ActionState::Finished);
             }
         ));

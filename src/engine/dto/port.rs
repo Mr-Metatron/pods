@@ -44,7 +44,7 @@ impl From<PortBinding> for podman_api::models::PortMapping {
     fn from(value: PortBinding) -> Self {
         Self {
             container_port: Some(value.target_port),
-            host_ip: Some(value.host_ip.trim().to_owned()).filter(|address| !address.is_empty()),
+            host_ip: None,
             host_port: value.host_port,
             protocol: Some(value.protocol.to_string()),
             range: None,

@@ -1,4 +1,4 @@
-# Full-system QEMU validation
+# Mobile UI checks in full-system QEMU
 
 The native test harness can run in a disposable Alpine guest with its own Linux
 kernel. This is useful when the development host cannot create Unix sockets.
@@ -20,23 +20,22 @@ root directory. For an uninstalled development build, the runtime packages are
 The GTK 4 VTE library is in `vte3-gtk4`; the `vte3` package contains GTK 3 VTE.
 The GUI checks additionally use `xvfb`, `xvfb-run`, `xauth`, `dbus`,
 `font-dejavu` and `font-noto-cjk`. Wayland checks use `weston`,
-`weston-backend-headless` and `weston-shell-desktop`.
+`weston-backend-x11`, `weston-shell-desktop` and `xdotool`. These are guest test
+dependencies; the application's APK does not depend on them.
 
-Docker acceptance uses `docker`, `iproute2`, `iptables`, `procps-ng` and
-`python3`. `procps-ng` supplies the daemon host's `ps` implementation used by
-Docker Top. The guest kernel must provide cgroups, namespaces, veth, bridge and
-the netfilter modules used by the daemon. Extract the matching `modloop-virt`
-SquashFS image and place its `modules/` directory at `/lib/modules` in the guest.
+Extract the matching `modloop-virt` SquashFS image and place its `modules/`
+directory at `/lib/modules` in the guest. The UI runner does not start a Docker
+daemon or run general container lifecycle tests.
 
 Keep generated disks, downloaded packages, kernels and screenshots outside the
 Git checkout. The checked-in scripts contain the reproducible test logic.
 
 ## Prepare the test filesystem
 
-Build all three test executables with the same source revision and Cargo lockfile:
+Build the UI test executable from the current source revision and Cargo lockfile:
 
 ```sh
-cargo test --locked --no-run --target-dir _build/src
+cargo test --locked --bin pods --no-run --target-dir _build/src
 ```
 
 Place the actual executable artifacts in the guest as follows. Cargo's `.d`
@@ -45,9 +44,8 @@ dependency files are not executables.
 | Guest path | Artifact |
 | --- | --- |
 | `/opt/pods-tests/pods` | `pods-*` binary containing the ignored GTK integration test |
-| `/opt/pods-tests/engine-contract` | `engine_contract-*` integration test binary |
-| `/opt/pods-tests/engine-live` | `engine_live-*` integration test binary |
 | `/opt/pods-tests/guest-ui-tests.sh` | `tests/qemu/guest-ui-tests.sh` |
+| `/opt/pods-tests/guest-wayland-input.sh` | `tests/qemu/guest-wayland-input.sh` |
 | `/vm-init` | `tests/qemu/guest-init.sh` |
 
 Give the binaries and scripts mode `0755`. The compiled configuration in the
@@ -60,10 +58,12 @@ For Chinese checks, install the Pods `zh_CN` translation alias supplied by the
 APK. The test sets `LANG=zh_CN.UTF-8`, unsets `LANGUAGE` and verifies the result of
 `gettext("Regular Expression")` in the GTK process before creating widgets.
 
-The root guest entry point mounts cgroup2, creates the ordinary `tester` account
-with UID 1000, and invokes the contract, permission and GUI checks under that
-account. The permission check must run without root privileges. Results are
-written under `/out`.
+The guest entry point creates the ordinary `tester` account with UID 1000 and
+invokes the mobile UI checks under that account. Results are written under
+`/out`. The default run includes English and Chinese X11 checks and an English
+Wayland check. During development, `PODS_TEST_UI_LOCALES=C.UTF-8` and
+`PODS_TEST_WAYLAND=0` in `/etc/pods-test-env` select a single X11 run. Setting
+`PODS_TEST_UI_LOCALES=""` selects the Wayland check alone.
 
 ## Assemble and boot
 
@@ -98,37 +98,76 @@ after offline edits can otherwise overwrite those edits.
 
 ## Checks and scope
 
-The GTK test instantiates the application's actual templates and models. It
+The GTK test directly instantiates the changed widgets' actual templates and models. It
 measures 360 and 366 pixel portrait widths, 651 pixel landscape width, a reduced
 300 pixel height for keyboard occlusion, and a 1024 pixel desktop width. It
 calibrates the window request against the allocated content size, accounting for
 window decorations, then keeps exact viewport and control-boundary assertions.
 
-The checks cover navigation breakpoints, search options and translated match
-counts, terminal action bytes and clipboard input, suggestion popup height and
-selection, and creation dialogs. The real log page is also filled past its line
-and byte limits to check GTK buffer deletion, timestamp alignment and disabled
-undo history. Screenshots are saved for visual inspection.
+The checks cover compact search options and translated match counts, terminal
+toolbar breakpoints, 44-pixel pointer targets, the five fixed auxiliary-key byte
+sequences, suggestion popup height and selection, and the connection dialog.
+Both socket-help popovers are measured at portrait, landscape and reduced-height
+viewports. Their text is checked for a usable width and scrolled to the end;
+screenshots preserve the beginning and end of each popover. Paste continues to call the
+existing terminal paste function; its connected-terminal and software-keyboard
+behavior remains a device acceptance item.
 
-Xvfb supplies the X11 run. Weston uses its headless backend and software renderer
-for the Wayland run. These runs exercise native GTK and Wayland code paths on
-the guest architecture. Pixel 2 testing still needs Plasma Mobile, the device's
-graphics driver, display scaling, touchscreen and actual software keyboard.
+The test registers an application context for GTK widgets but does not activate
+the complete application or construct its unchanged main window and client
+panels. It uses the unchanged application schema and does not replace the image
+sort setting. Full-application startup validation remains blocked pending the
+user's explicit approval for the separate schema fix recorded in
+[Upstream issues](upstream-issues.md).
 
-## Findings from the development run
+Xvfb supplies the X11 run. For Wayland, Weston runs its X11 backend inside a
+separate Xvfb display, with the Pixman software renderer. The application uses
+`GDK_BACKEND=wayland`. Before opening a popup, the test calls the guest input
+helper, which focuses the nested compositor and sends a Shift key through
+XTest. Weston delivers that event to its virtual Wayland input seat.
+
+An earlier headless Weston diagnostic reported `GdkWaylandDisplay` with
+`input seat: None`; the search options popover remained visible but unmapped at
+0 by 0 pixels. Wayland associates popup requests with input-event serials;
+see the [Wayland input model](https://wayland.freedesktop.org/docs/book/Protocol.html#input).
+[Gdk.Popup.present](https://docs.gtk.org/gdk4/method.Popup.present.html) also
+documents that a failed presentation produces no layout event. The nested
+compositor supplies input without changing the application's popover properties.
+
+These runs exercise native GTK and Wayland code paths on the guest architecture.
+Pixel 2 testing still needs Plasma Mobile, the device's graphics driver, display
+scaling, touchscreen and actual software keyboard.
+
+## Evidence boundaries
 
 ARM64 full-system TCG booted the official Alpine kernel and root filesystem. A
 guest `syslogd` bound `/dev/log`, and `logger` successfully sent a Unix socket
-message. On the x86_64 guest, the Unix API contract and an ordinary-user
-`EACCES` check ran successfully after the contract fixture was corrected.
+message. Mobile widget results must be recorded separately for the architecture,
+GTK backend, locale and exact source revision actually tested. Archived runs
+from broader earlier candidates are retained as experiments and are not gates
+for this scoped mobile change.
 
-The first GTK launch exposed a pre-existing schema mismatch: the images panel
-enumeration used `id`, while the schema offered and defaulted to `name`. The
-schema now matches the enumeration. A keyfile-backend check explicitly saved
-`name` using the old schema, then read `id` using the corrected schema, confirming
-the existing GSettings fallback behavior without extra migration code.
+## Scoped x86_64 run
 
-The Docker run performed a real pull from a loopback registry, then created and
-started a container and checked inspection, published ports, bind mounts,
-volumes and logs. The first Top request identified the missing daemon-host
-`procps-ng` dependency. The fixture retains this real operation for the rerun.
+The final local run uses the scope-reduced working tree following candidate
+`8d5ceee8`, the unchanged upstream schema default `images.sort-attribute='name'`,
+and a test executable built with `cargo test --offline --locked --bin pods
+--no-run --target-dir _build/src`. Its SHA-256 is:
+
+```text
+d7d3beb5364f909ec87bea89f1480403515841cc8bab633a681e67afc43d0c83
+```
+
+The test runs as guest UID 1000 with `G_DEBUG=fatal-criticals`. It uses GTK
+4.22.4, libadwaita 1.9.2 and VTE 0.84.0 on Alpine 3.24.4. Screenshot directories
+for this scoped run start with `/out/mobile-ui-`; earlier `/out/ui-` directories
+belong to archived experiments.
+
+The terminal toolbar's minimum width is 338 pixels after the padding adjustment
+limited to its new buttons. All six targets remain at least 44 by 44 pixels at
+360 and 366 pixel portrait widths and 651 pixel landscape width. The toolbar
+is hidden at 1024 pixels. The suggestion list requests a minimum of 58 and a
+natural height of 200 pixels; its parent stack now uses the visible page's height
+instead of the hidden status page's larger height. In the English run, the
+Podman and Docker help popovers measure 320 by 248 and 288 by 248 pixels,
+respectively, with independently scrollable 220-pixel content areas.

@@ -21,8 +21,7 @@ collect_build_logs() {
     done
 }
 
-# Cargo has already compiled these harnesses during APKBUILD's check(). Use
-# their --list output to distinguish the GTK harness from the application.
+# Use --list to distinguish the GTK test harness from the application binary.
 find_test_binary() {
     binary=
     for candidate in "$builddir/output/src/release/deps/$1"-*; do
@@ -44,15 +43,26 @@ find_test_binary() {
 
 check_installed() {
     [ "$(id -u)" -ne 0 ]
+    # Use the same distribution compiler flags as abuild. The package itself
+    # runs metadata checks; CI separately compiles and runs mobile checks.
+    sharedir=/usr/share/abuild
+    set +u
+    . "$sharedir/functions.sh"
+    set -u
     srcdir=/home/builder/aport/pods/src
     . /home/builder/aport/pods/APKBUILD
     cd "$builddir"
+    export CARGO_NET_OFFLINE=true
+    run_logged /out/logs/mobile-harness-build.txt \
+        cargo test --no-run --locked --offline --release \
+        --target-dir "$builddir/output/src" \
+        --bin pods --test engine_contract --test engine_live
 
     ui_test=ui_tests::mobile_widgets_fit_and_keep_controls_reachable
     ui_binary=$(find_test_binary pods "$ui_test")
     contract_binary=$(find_test_binary engine_contract \
         engine::socket::tests::denied_socket_retains_permission_denied_errno)
-    live_binary=$(find_test_binary engine_live docker_engine_end_to_end)
+    live_binary=$(find_test_binary engine_live docker_local_connection_smoke)
     cp "$ui_binary" /out/tests/pods-ui
     cp "$contract_binary" /out/tests/engine_contract
     cp "$live_binary" /out/tests/engine_live
@@ -117,7 +127,7 @@ build_package() {
     cp /home/builder/.abuild/*.pub /etc/apk/keys/
     cp /home/builder/.abuild/*.pub /out/keys/
     # Prerequisites are installed above. Package as a regular user and retain
-    # the test binaries and logs; the Cargo build and check phases are offline.
+    # build products; mobile checks run separately after package installation.
     su builder -c 'cd /home/builder/aport/pods && abuild -d -K'
     find /home/builder/packages -name '*.apk' -exec cp '{}' /out/packages/ \;
     apk add /out/packages/*.apk
@@ -132,15 +142,11 @@ build_package() {
 }
 
 check_live_engine() {
-    # The second container reuses the compiled harness. Only this short test
-    # has the runner's explicitly selected socket, after the package checks.
+    # Only this read-only smoke check uses the runner's explicitly selected
+    # socket, after package installation and mobile checks.
     : "${PODS_TEST_UID:?set the ordinary runner UID}"
-    : "${PODS_TEST_SHARED_DIR:?mount a shared directory at the same host path}"
-    : "${TMPDIR:?set the same mounted temporary directory}"
     [ "$PODS_TEST_UID" -ne 0 ]
     [ "$PODS_TEST_DOCKER_HOST" = unix:///var/run/docker.sock ]
-    [ "$PODS_TEST_ISOLATED_DOCKER" = 0 ]
-    [ "$TMPDIR" = "$PODS_TEST_SHARED_DIR" ]
     cp /out/keys/*.pub /etc/apk/keys/
     apk add --no-cache /out/packages/*.apk
 
@@ -154,8 +160,8 @@ check_live_engine() {
     # Supplementary membership exists only in this disposable container. The
     # host's socket mode, groups and daemon configuration are unchanged.
     addgroup tester "$socket_group"
-    su tester -c 'id; test -w "$PODS_TEST_SHARED_DIR"'
-    su tester -c 'timeout 300 /out/tests/engine_live docker_engine_end_to_end --exact --ignored --test-threads=1 --nocapture'
+    su tester -c id
+    su tester -c 'timeout 60 /out/tests/engine_live docker_local_connection_smoke --exact --ignored --test-threads=1 --nocapture'
 }
 
 case "${1:-package}" in

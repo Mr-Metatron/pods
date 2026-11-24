@@ -132,17 +132,6 @@ mod imp {
                 .bind("terminal-font-scale", obj, "font-scale")
                 .build();
 
-            self.terminal.connect_commit(clone!(
-                #[weak]
-                obj,
-                move |_, data, _| obj.send_input(data.as_bytes())
-            ));
-            utils::application().connect_shutdown(clone!(
-                #[weak]
-                obj,
-                move |_| obj.terminate()
-            ));
-
             self.terminal.set_colors(
                 None,
                 None,
@@ -410,7 +399,20 @@ impl ContainerTerminal {
         ));
 
         let (tx_input, mut rx_input) = tokio::sync::mpsc::unbounded_channel::<ExecInput>();
+        imp.terminal.connect_commit(clone!(
+            #[strong]
+            tx_input,
+            move |_, data, _| {
+                _ = tx_input.send(ExecInput::Data(data.as_bytes().to_vec()));
+            }
+        ));
         imp.tx_input.replace(Some(tx_input));
+
+        utils::application().connect_shutdown(clone!(
+            #[weak(rename_to = obj)]
+            self,
+            move |_| obj.terminate()
+        ));
 
         let width = imp.terminal.column_count();
         let height = imp.terminal.row_count();

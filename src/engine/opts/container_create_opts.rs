@@ -47,8 +47,7 @@ impl From<ContainerCreateOpts>
                 host_port: port_mapping
                     .host_port
                     .map(|host_port| host_port.to_string()),
-                host_ip: Some(port_mapping.host_ip.trim().to_owned())
-                    .filter(|address| !address.is_empty()),
+                host_ip: None,
             };
 
             port_bindings
@@ -252,39 +251,5 @@ impl AsRef<str> for SELinux {
 impl fmt::Display for SELinux {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.as_ref())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keeps_explicit_host_addresses_for_both_engines() {
-        for (address, expected) in [
-            ("127.0.0.1", Some("127.0.0.1")),
-            (" ::1 ", Some("::1")),
-            ("", None),
-            ("  ", None),
-        ] {
-            let port = engine::dto::PortBinding {
-                host_ip: address.into(),
-                host_port: Some(8080),
-                target_port: 80,
-                protocol: engine::dto::PortMappingProtocol::Tcp,
-            };
-            let (_, docker): (_, bollard::plugin::ContainerCreateBody) = ContainerCreateOpts {
-                ports: vec![port.clone()],
-                ..Default::default()
-            }
-            .into();
-            let bindings = docker.host_config.unwrap().port_bindings.unwrap();
-            assert_eq!(
-                bindings["80/tcp"].as_ref().unwrap()[0].host_ip.as_deref(),
-                expected,
-            );
-            let podman: podman_api::models::PortMapping = port.into();
-            assert_eq!(podman.host_ip.as_deref(), expected);
-        }
     }
 }

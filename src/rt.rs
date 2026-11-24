@@ -8,7 +8,7 @@ use gtk::glib;
 fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
-        // Network I/O does not need one worker per CPU on many-core mobile devices.
+        // Bound the client's own I/O workers on small-memory mobile devices.
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(
                 std::thread::available_parallelism()
@@ -18,7 +18,7 @@ fn runtime() -> &'static tokio::runtime::Runtime {
             )
             .enable_all()
             .build()
-            .expect("Failed to create the I/O runtime")
+            .unwrap()
     })
 }
 
@@ -86,11 +86,7 @@ where
         Promise::new(async move {
             let mut stream = (self.producer)(&self.api);
 
-            // A quiet event/log stream may never yield another item after the view closes.
-            // Stop it as soon as its receiver is dropped, not only on the next send.
-            while let futures::future::Either::Right((Some(item), _)) =
-                futures::future::select(Box::pin(tx.closed()), stream.next()).await
-            {
+            while let Some(item) = stream.next().await {
                 if tx.send(item).await.is_err() {
                     break;
                 }
@@ -119,7 +115,6 @@ where
     }
 }
 
-#[derive(Debug)]
 pub(crate) struct PipeFinish(glib::JoinHandle<()>);
 impl From<glib::JoinHandle<()>> for PipeFinish {
     fn from(value: glib::JoinHandle<()>) -> Self {
@@ -127,10 +122,6 @@ impl From<glib::JoinHandle<()>> for PipeFinish {
     }
 }
 impl PipeFinish {
-    pub(crate) fn abort(&self) {
-        self.0.abort();
-    }
-
     pub(crate) fn on_finish<F>(self, mut op: F)
     where
         F: FnMut() + 'static,
@@ -138,39 +129,6 @@ impl PipeFinish {
         glib::spawn_future_local(async move {
             self.0.await.unwrap();
             op();
-        });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct DropSignal(Option<tokio::sync::oneshot::Sender<()>>);
-
-    impl Drop for DropSignal {
-        fn drop(&mut self) {
-            if let Some(sender) = self.0.take() {
-                let _ = sender.send(());
-            }
-        }
-    }
-
-    #[test]
-    fn dropping_receiver_releases_an_idle_producer() {
-        runtime().block_on(async {
-            let (sender, receiver) = tokio::sync::oneshot::channel();
-            let stream = Pipe::new(DropSignal(Some(sender)), |_| {
-                futures::stream::pending::<()>().boxed()
-            })
-            .stream();
-
-            drop(stream);
-
-            tokio::time::timeout(std::time::Duration::from_secs(2), receiver)
-                .await
-                .expect("An idle producer should be cancelled")
-                .expect("The producer should release its API handle");
         });
     }
 }

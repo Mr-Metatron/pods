@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::OnceCell;
 
 use adw::prelude::*;
@@ -36,6 +37,8 @@ mod imp {
         pub(super) docker_socket_url: OnceCell<String>,
         #[property(get, set, construct_only)]
         pub(super) connection_manager: OnceCell<model::ConnectionManager>,
+        #[template_child]
+        pub(super) toast_overlay: TemplateChild<adw::ToastOverlay>,
         #[template_child]
         pub(super) navigation_view: TemplateChild<adw::NavigationView>,
         #[template_child]
@@ -199,7 +202,6 @@ mod imp {
         #[template_callback]
         fn on_custom_url_entry_row_changed(&self) {
             self.custom_url_radio_button.set_active(true);
-            self.obj().update_actions();
         }
 
         #[template_callback]
@@ -269,13 +271,14 @@ impl ConnectionCreationDialog {
             .connection_manager()
             .try_connect(
                 imp.name_entry_row.text().as_str(),
-                &if imp.custom_url_radio_button.is_active() {
-                    imp.custom_url_entry_row.text().to_string()
+                if imp.custom_url_radio_button.is_active() {
+                    Cow::Owned(imp.custom_url_entry_row.text().into())
                 } else if imp.podman_unix_socket_radio_button.is_active() {
-                    utils::unix_socket_url()
+                    Cow::Owned(utils::unix_socket_url())
                 } else {
-                    imp.docker_socket_url.get().unwrap().clone()
-                },
+                    Cow::Borrowed(imp.docker_socket_url.get().unwrap().as_str())
+                }
+                .as_ref(),
                 if imp.color_switch.is_active() {
                     Some(imp.color_dialog_button.rgba())
                 } else {

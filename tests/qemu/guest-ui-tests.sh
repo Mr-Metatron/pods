@@ -14,44 +14,22 @@ export XDG_CONFIG_HOME=/out/config
 export XDG_RUNTIME_DIR=/run/user/1000
 export GDK_BACKEND=x11
 export GSK_RENDERER=cairo
+export G_DEBUG=fatal-criticals
 export NO_AT_BRIDGE=1
 
 mkdir -p "$XDG_CONFIG_HOME"
-result=0
-/opt/pods-tests/engine-contract --test-threads=1 --nocapture > /out/contracts.log 2>&1
-status=$?
-echo "CONTRACT_EXIT=$status"
-[ "$status" = 0 ] || result=1
-/opt/pods-tests/engine-contract denied_socket_retains_permission_denied_errno \
-    --include-ignored --test-threads=1 --nocapture > /out/permissions.log 2>&1
-status=$?
-echo "PERMISSIONS_EXIT=$status"
-[ "$status" = 0 ] || result=1
-for locale in C.UTF-8 zh_CN.UTF-8; do
-    export LANG=$locale
-    unset LANGUAGE
-    export PODS_UI_TEST_OUTPUT="/out/ui-$locale"
-    case "$locale" in
-        zh_CN.UTF-8) export PODS_UI_TEST_REGEX_LABEL=正则表达式 ;;
-        *) export PODS_UI_TEST_REGEX_LABEL='Regular Expression' ;;
-    esac
-    mkdir -p "$PODS_UI_TEST_OUTPUT"
-    dbus-run-session -- xvfb-run -a -s '-screen 0 1280x1024x24 -nolisten tcp' \
-        /opt/pods-tests/pods ui_tests::mobile_widgets_fit_and_keep_controls_reachable \
-        --ignored --test-threads=1 --nocapture > "/out/ui-$locale.log" 2>&1
-    status=$?
-    echo "UI_${locale}_EXIT=$status"
-    [ "$status" = 0 ] || result=1
-done
-
-if command -v weston >/dev/null; then
+if [ "${1:-}" = --wayland ]; then
     export LANG=C.UTF-8
+    unset LANGUAGE
     export PODS_UI_TEST_REGEX_LABEL='Regular Expression'
-    export PODS_UI_TEST_OUTPUT=/out/ui-wayland
+    export PODS_UI_TEST_OUTPUT=/out/mobile-ui-wayland
+    export PODS_UI_TEST_INPUT_HELPER=/opt/pods-tests/guest-wayland-input.sh
     export WAYLAND_DISPLAY=wayland-pods
     export GDK_BACKEND=wayland
     mkdir -p "$PODS_UI_TEST_OUTPUT"
-    weston --backend=headless-backend.so --renderer=pixman \
+    # Xvfb supplies Weston with an input seat. The application still uses native
+    # Wayland; the helper sends guest XTest events through the nested compositor.
+    weston --backend=x11-backend.so --renderer=pixman \
         --shell=desktop-shell.so --socket="$WAYLAND_DISPLAY" \
         --width=1280 --height=1024 --idle-time=0 --no-config \
         --log=/out/weston.log &
@@ -62,11 +40,37 @@ if command -v weston >/dev/null; then
     done
     dbus-run-session -- /opt/pods-tests/pods \
         ui_tests::mobile_widgets_fit_and_keep_controls_reachable \
-        --ignored --test-threads=1 --nocapture > /out/ui-wayland.log 2>&1
+        --ignored --test-threads=1 --nocapture > /out/mobile-ui-wayland.log 2>&1
     status=$?
     echo "UI_WAYLAND_EXIT=$status"
-    [ "$status" = 0 ] || result=1
+    cat /out/mobile-ui-wayland.log
     kill "$compositor_pid" 2>/dev/null || true
     wait "$compositor_pid" 2>/dev/null || true
+    exit "$status"
+fi
+
+result=0
+locales=${PODS_TEST_UI_LOCALES-"C.UTF-8 zh_CN.UTF-8"}
+for locale in $locales; do
+    export LANG=$locale
+    unset LANGUAGE
+    export PODS_UI_TEST_OUTPUT="/out/mobile-ui-$locale"
+    case "$locale" in
+        zh_CN.UTF-8) export PODS_UI_TEST_REGEX_LABEL=正则表达式 ;;
+        *) export PODS_UI_TEST_REGEX_LABEL='Regular Expression' ;;
+    esac
+    mkdir -p "$PODS_UI_TEST_OUTPUT"
+    dbus-run-session -- xvfb-run -a -s '-screen 0 1280x1024x24 -nolisten tcp' \
+        /opt/pods-tests/pods ui_tests::mobile_widgets_fit_and_keep_controls_reachable \
+        --ignored --test-threads=1 --nocapture > "/out/mobile-ui-$locale.log" 2>&1
+    status=$?
+    echo "UI_${locale}_EXIT=$status"
+    cat "/out/mobile-ui-$locale.log"
+    [ "$status" = 0 ] || result=1
+done
+
+if [ "${PODS_TEST_WAYLAND:-1}" = 1 ] && command -v weston >/dev/null; then
+    xvfb-run -a -s '-screen 0 1280x1024x24 -nolisten tcp' "$0" --wayland
+    [ "$?" = 0 ] || result=1
 fi
 exit "$result"

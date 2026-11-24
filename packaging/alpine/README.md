@@ -21,7 +21,21 @@ separate build machine avoids competing with its desktop and running containers.
 These variables are applied after abuild loads its own Cargo settings. They
 control compilation; managed containers retain their own resource limits.
 
-## Create a pinned source package
+## Candidate package status
+
+This is a reviewable packaging candidate. The checkout currently contains
+`APKBUILD.in` and the source snapshot helper described below. The helper creates
+a complete `APKBUILD` and its matching source archive from a committed revision,
+with the actual SHA-512 checksum.
+
+Full application startup is blocked by the upstream `images.sort-attribute`
+schema default, which names `name` while its enum defines `id`. The schema is
+kept at the upstream baseline pending approval for the proposed minimal fix.
+See [the upstream issue record](../../docs/mobile/upstream-issues.md). The mobile
+GUI checks instantiate the changed widgets independently; full startup remains
+a separate blocked acceptance item.
+
+## Create a local source snapshot
 
 Commit the changes to package, then run the helper from the checkout:
 
@@ -59,31 +73,15 @@ cd /tmp/pods-aport
 abuild -r
 ```
 
-`prepare()` downloads the versions fixed by Cargo.lock. `build()` and `check()`
-set Cargo to offline mode; a missing dependency or a lockfile change fails the
-build. The generated APKBUILD shares one Cargo cache across those phases.
+`prepare()` downloads the versions fixed by Cargo.lock into the Cargo home
+selected by upstream's Meson build. `build()` uses locked, offline Cargo;
+`check()` runs the existing desktop-file, metainfo and schema validators.
 Packaging uses Meson to install the binary, resources, schemas, desktop file,
 icons and metainfo. Translations are in the `pods-lang` subpackage.
 It includes a `zh_CN` alias for the upstream `zh_Hans` catalog, so the usual
 Plasma Simplified Chinese locale works without setting `LANGUAGE` globally.
 
-The release source vendor script also preserves all locked platform dependencies,
-including musl, and leaves crate checksums intact. A vendored source tree can be
-built without a fetch step using:
-
-```sh
-meson setup _build --prefix=/usr -Dcargo-offline=true -Dcargo-clippy=false
-meson compile -C _build
-meson test -C _build --print-errorlogs
-DESTDIR="$PWD/staging" meson install --no-rebuild -C _build
-```
-
-This does not configure a cross compiler. For cross compilation, provide the
-target sysroot, linker and pkg-config settings before selecting
-`-Dcargo-target=aarch64-unknown-linux-musl`. Native Alpine builds use the target
-configured by Alpine's Rust toolchain automatically.
-
-## Install and start
+## Install the candidate
 
 Copy the signed `pods` and `pods-lang` packages and the builder's **public** key
 to the phone. Install that public key in `/etc/apk/keys/`, then install the two
@@ -95,29 +93,30 @@ CI artifacts include the packages, the build's public key in `keys/`, the
 generated APKBUILD, installed dependency versions and ELF inspection results.
 Its private key stays in the disposable builder.
 
-Both native CI jobs install the APKs, then run the Unix contract suite as an
-ordinary user, including the real permission-denied test. The installed GTK
-resources are exercised under Xvfb with an in-memory GSettings backend and the
-Cairo renderer. English and Simplified Chinese runs save screenshots for phone,
-landscape, reduced-height and desktop viewports in `screenshots/`; full test
-output is in `logs/`. Failed jobs retain their available evidence.
+Both native CI jobs install the APKs, then compile and run the mobile test
+harnesses as an ordinary user. The checks cover local engine identification,
+socket errors and permissions, the statistics concurrency limit, and the
+modified mobile controls. Installed GTK resources are exercised under Xvfb
+with an in-memory GSettings backend and the Cairo renderer. English and
+Simplified Chinese runs save screenshots for phone, landscape, reduced-height
+and desktop viewports in `screenshots/`; full test output is in `logs/`.
+Failed jobs retain their available evidence.
 The `tests/` directory contains the matching `pods-ui`, `engine_contract` and
 `engine_live` harnesses with a relative-path `SHA256SUMS` file. They can be run
 on an Alpine VM of the same architecture after installing the matching APKs,
 without a Rust toolchain; the GTK harness additionally needs a display and the
 environment described in `src/ui_tests.rs`.
 
-The x86_64 job also runs the already compiled Docker acceptance harness in a
-separate Alpine container. That short step has the runner daemon's explicitly
-selected Unix socket and a temporary directory mounted at the same absolute
-host path. It uses an ordinary user whose supplemental socket group exists only
-inside the test container. `PODS_TEST_ISOLATED_DOCKER=0` keeps global prune
-disabled; cleanup targets this test's uniquely named objects. Docker version
-and test output are saved separately. These checks complement the Pixel 2
-Wayland and touch acceptance below.
+The x86_64 job also runs `docker_local_connection_smoke` in a separate Alpine
+container. It selects the runner daemon's Unix socket explicitly and checks
+engine identification, ping, information and resource listing. It uses an
+ordinary user whose supplemental socket group exists only inside the test
+container. Docker version and test output are saved separately. These checks
+complement the Pixel 2 Wayland and touch acceptance below.
 
-Open **Pods** from the application drawer as the ordinary desktop user. The
-package includes the icon theme and desktop schemas used by the existing UI.
+After approval and resolution of the startup blocker above, open **Pods** from
+the application drawer as the ordinary desktop user. The package includes the
+icon theme and desktop schemas used by the existing UI.
 It does not enable or install a container daemon, alter socket permissions, or
 change user groups. The `openssh-client-default` dependency preserves SSH remote
 connections; TLS uses the system CA certificates.

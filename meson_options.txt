@@ -8,24 +8,3 @@ option(
   value: 'default',
   description: 'The build profile for Pods. One of "default" or "development".'
 )
-
-option(
-  'cargo-offline',
-  type: 'boolean',
-  value: false,
-  description: 'Build and test using only locally cached or vendored Cargo dependencies.'
-)
-
-option(
-  'cargo-target',
-  type: 'string',
-  value: '',
-  description: 'Optional Cargo target triple. An empty value uses Cargo configuration or the native target.'
-)
-
-option(
-  'cargo-clippy',
-  type: 'boolean',
-  value: true,
-  description: 'Register the Clippy developer check in the lint test suite.'
-)

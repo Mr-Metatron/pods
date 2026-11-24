@@ -3396,7 +3396,7 @@ msgstr "区分大小写"
 
 #: src/widget/text_search_entry.blp:54 src/widget/text_search_entry.blp:58
 msgid "Whole Word"
-msgstr "全词匹配"
+msgstr ""
 
 #: src/widget/zoom_control.blp:20
 msgid "Zoom Out"
@@ -3797,13 +3797,3 @@ msgstr "下一条命令"
 
 msgid "Paste"
 msgstr "粘贴"
-
-msgid "Log history is limited to reduce memory use. Save logs to view the complete output."
-msgstr "为减少内存占用，日志历史记录已受限。保存日志可查看完整输出。"
-
-msgid "Save Logs"
-msgstr "保存日志"
-
-#: src/engine/api/container.rs
-msgid "Install procps-ng on the Docker host to view container processes. Its ps command provides the required CPU percentage field."
-msgstr "请在运行 Docker 引擎的主机上安装 procps-ng，以查看容器进程。它提供的 ps 命令支持所需的 CPU 使用率字段。"

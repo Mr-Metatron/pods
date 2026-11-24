@@ -1,63 +1,66 @@
-# Docker validation
+# 本机 Docker 与资源开销验证
 
-Run these commands from the repository root after installing the native build dependencies. They exercise the Rust engine adapter used by Pods; the UI, compositor, keyboard and Pixel 2 checks are separate in the mobile acceptance report.
+这些测试只验证本次移动适配直接修改的连接、权限、请求并发和上传内存路径。它们调用 Pods 的实际 Rust engine 代码。完整窗口、Wayland、触屏和键盘验收见[设备验收表](device-acceptance.md)；上游已有业务问题见[独立问题清单](upstream-issues.md)。
 
-## Protocol and unit tests
+## Unix socket 契约测试
+
+安装原生构建依赖并生成 Meson 配置后，在仓库根目录运行：
 
 ```sh
-cargo fetch --locked
-meson setup _build --prefix=/usr -Dcargo-offline=true
 cargo test --locked --offline --target-dir _build/src --test engine_contract
 ```
 
-The contract suite starts temporary Unix HTTP endpoints. It checks engine identification, Docker client API negotiation state, Docker/Podman capabilities, container creation options including an explicit loopback address, lifecycle requests, volume requests, exec creation and resizing, log/event decoding, the statistics concurrency limit and disposal of stale CPU counters. Image fixtures also verify an error when a build ends without an image ID and that a pull returns the local image config ID, which differs from the registry manifest digest. The tests call the production adapter and record the SDK's actual HTTP targets with `--nocapture`. The locked Bollard 0.21.1 emitted unversioned paths in the Unix fixture while its client version state changed successfully; compatibility with older daemon API versions needs real-daemon testing.
+测试使用临时 Unix HTTP 服务，保留 SDK 的实际传输路径。范围如下：
 
-The socket unit tests also check rootless discovery and the distinction between an absent path, a regular file, an active socket and a stale socket. A restricted execution environment that denies `socket(AF_UNIX)` will fail these tests before the HTTP fixture can start. Record that environment failure separately from a protocol test result.
+| 检查 | 验证内容 |
+| --- | --- |
+| 引擎识别 | 原有 Docker/Podman 识别与能力开关保持可用；未知引擎返回错误 |
+| 本地发现 | 明确的本地 DOCKER_HOST、运行时 rootless socket、系统 socket 的选择顺序 |
+| 访问诊断 | 路径不存在、普通文件、正常监听 socket、已停止服务的 socket |
+| Docker stats | 七个容器的快照全部返回，同时处理的请求最多四个 |
+| 文件上传 | Docker 与 Podman 收到的 PUT tar 内容与输入文件逐字节相同 |
 
-To test a real filesystem access denial, run the following as an ordinary user with no DAC override capability:
+测试不要求改变上游的百分比计算、事件状态、镜像 ID 或失败处理。上传 fixture 只接收请求，不运行容器。宿主禁止 `socket(AF_UNIX)` 时，这些测试会明确失败；请在允许 Unix socket 的原生 Linux 或完整系统 QEMU 客体中运行，并单独记录宿主限制。
+
+真实文件权限拒绝需要普通用户执行，且该进程没有绕过文件权限的 capability：
 
 ```sh
 cargo test --locked --offline --target-dir _build/src --test engine_contract \
   denied_socket_retains_permission_denied_errno -- --ignored --nocapture
 ```
 
-This creates a private temporary socket, removes its permission bits, attempts to connect through the production helper, verifies `PermissionDenied`, and restores permissions before cleanup. It does not change a Docker socket or user groups.
+这个测试仅把自建临时 socket 的权限设为零，检查实际 `PermissionDenied` 错误及其来源，然后恢复权限清理。Docker socket 和用户组保持不变。也可在普通用户环境使用 `-- --include-ignored --test-threads=1` 一次执行全部 scoped contract。
 
-## Real Docker Engine acceptance
+## 真实 Docker 的只读连接检查
 
-On an Alpine Docker host, install `procps-ng` for the process list: Docker executes the host `ps`, and BusyBox `ps` lacks the requested CPU percentage field. The native Pods package includes this dependency.
-
-Choose the daemon explicitly. The test never falls back to the default Docker socket. The example keeps global prune disabled, creates uniquely named resources, and removes those resources after success, API failure or the overall timeout.
+明确选择手机或测试机上的 Unix socket，然后以实际桌面用户运行：
 
 ```sh
 PODS_TEST_DOCKER_HOST=unix:///var/run/docker.sock \
-PODS_TEST_ISOLATED_DOCKER=0 \
-PODS_TEST_IMAGE=alpine:latest \
 cargo test --locked --offline --target-dir _build/src --test engine_live \
-  docker_engine_end_to_end -- --ignored --nocapture
+  docker_local_connection_smoke -- --exact --ignored --nocapture
 ```
 
-This test requires registry access to pull the selected image. It leaves that base image in the daemon's cache. Test containers, volumes and committed/built image tags use a unique `pods-test-...` prefix, which is included in cleanup errors.
+rootless 服务可把环境变量设为 `unix://$XDG_RUNTIME_DIR/docker.sock`。测试不会隐式选择 socket；它在三十秒内验证引擎识别、ping、info、容器列表、镜像列表和卷列表，输出 daemon 架构、版本、内核与对象数量。测试只读取状态，不拉取镜像、不创建或修改资源、不运行 prune，也不需要 Registry 凭据。
 
-The test verifies:
+运行用户需要原有 socket 的访问权限。连接失败时保留错误全文，并在 UI 中检查对应的持久提示。系统 Docker 的组权限具有 root 等价控制能力；组变化后需重新登录桌面，Pods 继续以普通用户运行。
 
-- Image pull, completion with the local image ID, listing, inspect, JSON inspection and history.
-- Container creation with environment variables, a memory limit, a `127.0.0.1` port binding confirmed by inspection, a read-only bind mount and a named volume.
-- Running logs, container statistics and process listing.
-- An attached interactive exec, text input/output and terminal resize.
-- Streaming copy into a container and reading the copied archive back.
-- Event delivery, rename, pause/unpause, restart, stop and subsequent start.
-- Commit, tag/untag and image building using the daemon's native architecture.
-- Removal of the created test resources during cleanup.
+Alpine 的现有进程列表功能还需要宿主 `procps-ng` 的 `ps`，原生 APK 已声明该依赖。这个只读连接测试不调用进程列表；安装与完整应用功能验收按设备验收表记录。
 
-Registry search and authenticated push have separate acceptance requirements and are explicitly reported as skipped by this test. UI multi-selection, full-screen terminal behaviour, rotation, soft keyboard interaction and suspend/resume are device checks.
+## 当前范围的客体实测
 
-For bind mounts, Docker must see the test's current directory at the same absolute path. When running the tests inside a build container, mount the workspace at its original host path and set that path as the container's working directory. `PODS_TEST_SHARED_DIR` can select another writable directory that both the test process and daemon see at the same path.
+2026-11-24，在范围收拢后的工作树上编译两个测试目标，使用完整系统 QEMU x86_64、Alpine 3.24、内核 6.18.60-0-virt，以 UID/GID 1000 的 tester 运行：
 
-For a disposable daemon with its own data directory and no other workloads, set `PODS_TEST_ISOLATED_DOCKER=1` to additionally exercise container, image and volume prune after resource cleanup. Keep this value at `0` when using a shared development or CI daemon.
+| 本轮检查 | 结果 |
+| --- | --- |
+| `engine_contract --include-ignored --test-threads=1` | 12 passed，0 failed，0 ignored；含九个本轮连接/资源测试与三个既有逻辑测试 |
+| 实际 Unix socket 权限拒绝 | 通过，包含在上行；普通用户连接权限为零的自建 socket 得到 PermissionDenied |
+| `docker_local_connection_smoke --exact --ignored` | 1 passed；真实 Docker 29.9.3；读取到 0 个容器、0 个镜像、0 个卷 |
 
-## Reporting results
+完整串口记录为工作区 `build-env/qemu-x86/scoped-docker-boot.log`，独立结果文件位于 `build-env/qemu-x86/scoped-docker-results/scoped-docker/`。两个测试退出码均为零；客体正常同步、只读重新挂载并关机。这批是当前范围的后端验证，ARM64 应用和 Pixel 2 实机结果仍待补充。
 
-Save the full command output, test commit, architecture, libc, GTK/libadwaita versions and Docker version. The real-daemon test prints the daemon architecture, version and kernel, followed by the completed checks. A failure before the first `PASS` marker establishes only the connection/setup failure. Record the last completed marker and cleanup result.
+## 结果记录
 
-Protocol tests establish request/response behaviour against fixtures. Native daemon tests establish the exercised engine operations on that host. Pixel 2 acceptance additionally requires the application's actual Wayland/Plasma session, touch and Chinese input, rotation, socket group changes after a fresh login, and performance measurements on the phone.
+保存测试提交、完整输出、执行用户、架构、libc、GTK/libadwaita 与 Docker 版本。契约测试说明上述传输和权限路径的行为；只读 smoke 说明指定 daemon 的连接与读访问。Pixel 2 上的完整操作、触控、中文 preedit、295% 缩放、休眠恢复和 RSS/PSS 仍需实机记录。
+
+较早宽范围候选曾运行容器生命周期、镜像构建、双向复制和真实 Registry 测试。其中包含已经撤回的上游 bug 修复，因此这批历史输出只作为问题调查证据；当前补丁使用这里列出的 scoped 测试重新验收。

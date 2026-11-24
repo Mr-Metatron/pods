@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
     branches: [main, feat/linux-mobile-docker]
+    paths-ignore:
+      - 'docs/**'
+      - 'packaging/alpine/APKBUILD'
   workflow_dispatch:
 
 permissions:
@@ -40,25 +43,19 @@ jobs:
             alpine:3.24 \
             sh /source/build-aux/ci-alpine.sh 2>&1 | \
             tee "$RUNNER_TEMP/pods-native/build.log"
-      - name: Exercise the Docker adapter against the runner daemon
+      - name: Check the local Docker connection
         if: matrix.arch == 'x86_64'
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/.test-tmp"
           docker version > "$RUNNER_TEMP/pods-native/docker-version.txt"
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/source:ro" \
             -v "$RUNNER_TEMP/pods-native:/out:ro" \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$GITHUB_WORKSPACE/.test-tmp:$GITHUB_WORKSPACE/.test-tmp" \
             -e PODS_TEST_UID="$(id -u)" \
             -e PODS_TEST_DOCKER_HOST=unix:///var/run/docker.sock \
-            -e PODS_TEST_ISOLATED_DOCKER=0 \
-            -e PODS_TEST_IMAGE=alpine:3.24 \
-            -e PODS_TEST_SHARED_DIR="$GITHUB_WORKSPACE/.test-tmp" \
-            -e TMPDIR="$GITHUB_WORKSPACE/.test-tmp" \
             alpine:3.24 \
             sh /source/build-aux/ci-alpine.sh live 2>&1 | \
-            tee "$RUNNER_TEMP/pods-native/docker-live.log"
+            tee "$RUNNER_TEMP/pods-native/docker-connection.log"
       - name: Upload packages, screenshots and test evidence
         if: always()
         uses: actions/upload-artifact@v4

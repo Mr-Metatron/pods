@@ -7,6 +7,7 @@ Popover popover {
   has-arrow: false;
 
   child: Stack stack {
+    vhomogeneous: false;
     notify::visible-child-name => $on_stack_notify_visible_child_name() swapped;
 
     StackPage {

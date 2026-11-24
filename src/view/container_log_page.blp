@@ -89,13 +89,6 @@ template $PdsContainerLogPage: Adw.NavigationPage {
     Box {
       orientation: vertical;
 
-      Adw.Banner history_limit_banner {
-        revealed: false;
-        title: _("Log history is limited to reduce memory use. Save logs to view the complete output.");
-        button-label: _("Save Logs");
-        action-name: "container-log-page.save-to-file";
-      }
-
       Adw.Banner banner {
         action-name: "container-log-page.start-container";
         button-label: _("Start or Resume Container");
@@ -160,7 +153,6 @@ template $PdsContainerLogPage: Adw.NavigationPage {
                 buffer: $GtkSourceBuffer source_buffer {
                   cursor-moved => $on_source_buffer_cursor_moved() swapped;
                   highlight-matching-brackets: "False";
-                  enable-undo: false;
                 };
 
                 top-margin: "12";

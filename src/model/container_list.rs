@@ -304,8 +304,10 @@ impl ContainerList {
             ),
             "pause" => self.upsert_container_status(id, model::ContainerStatus::Paused, err_op),
             "unpause" => self.upsert_container_status(id, model::ContainerStatus::Running, err_op),
-            "kill" => self.upsert_container_status(id, model::ContainerStatus::Stopping, err_op),
-            "stop" | "cleanup" | "die" | "died" => {
+            "kill" | "stop" => {
+                self.upsert_container_status(id, model::ContainerStatus::Stopping, err_op)
+            }
+            "cleanup" | "die" | "died" => {
                 self.upsert_container_status(id, model::ContainerStatus::Exited, err_op)
             }
             "oom" => self.upsert_container_status(id, model::ContainerStatus::Dead, err_op),

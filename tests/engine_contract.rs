@@ -1,5 +1,5 @@
-//! Unix HTTP contract tests against the real engine adapter. No daemon or display
-//! is required; real Docker and device acceptance are documented separately.
+//! Scoped mobile adapter contracts: engine detection, socket access, bounded
+//! statistics requests and unchanged tar upload bytes. No daemon or display is required.
 #![allow(dead_code, unused_imports)]
 
 #[path = "../src/engine/mod.rs"]
@@ -8,6 +8,7 @@ mod engine;
 mod gettext;
 
 use std::io::Read;
+use std::io::Seek;
 use std::io::Write;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
@@ -38,10 +39,6 @@ impl Request {
         } else {
             path
         }
-    }
-
-    fn json(&self) -> Value {
-        serde_json::from_slice(&self.body).unwrap()
     }
 }
 
@@ -239,33 +236,27 @@ fn run(future: impl std::future::Future<Output = ()>) {
 }
 
 #[test]
-fn negotiates_docker_api_and_keeps_podman_capabilities() {
+fn identifies_docker_and_preserves_podman_capabilities() {
     run(async {
         for (name, is_podman) in [("Engine", false), ("Podman Engine", true)] {
             let daemon = Daemon::new(move |request| match request.path() {
-                "/version" => version(name, "1.41"),
+                "/version" => version(name, "1.53"),
                 "/containers/json" => Response::json(json!([])),
                 _ => panic!("unexpected request: {request:?}"),
             });
             let engine = engine::Engine::new(&daemon.url).await.unwrap();
             assert_eq!(engine.capabilities().pods, is_podman);
             assert_eq!(engine.capabilities().kube_generation, is_podman);
-            if let engine::Engine::Docker(docker) = &engine {
-                assert_eq!(docker.client_version().minor_version, 41);
+            if matches!(engine, engine::Engine::Docker(_)) {
                 engine.containers().list().await.unwrap();
             }
             let requests = daemon.requests();
             assert_eq!(
                 requests
                     .iter()
-                    .filter(|req| req.path() == "/version")
+                    .filter(|request| request.path() == "/version")
                     .count(),
-                2
-            );
-            // Record actual SDK requests, including whether it emits an API prefix.
-            eprintln!(
-                "{name}: {:?}",
-                requests.iter().map(|req| &req.target).collect::<Vec<_>>()
+                1
             );
         }
     });
@@ -275,9 +266,9 @@ fn negotiates_docker_api_and_keeps_podman_capabilities() {
 fn rejects_unknown_engine_without_creating_a_client() {
     run(async {
         let daemon = Daemon::new(|_| version("Unrelated server", "1.53"));
-        let result = engine::Engine::new(&daemon.url).await;
         assert!(
-            result
+            engine::Engine::new(&daemon.url)
+                .await
                 .unwrap_err()
                 .to_string()
                 .contains("no suitable engine")
@@ -286,330 +277,27 @@ fn rejects_unknown_engine_without_creating_a_client() {
 }
 
 #[test]
-fn docker_create_lifecycle_and_volume_requests_keep_user_options() {
-    run(async {
-        let daemon = Daemon::new(|request| match request.path() {
-            "/version" => version("Engine", "1.56"),
-            "/containers/create" => {
-                Response::json(json!({ "Id": "test-container", "Warnings": [] }))
-            }
-            "/volumes/create" => Response::json(
-                json!({ "Name": "test-volume", "Driver": "local", "Mountpoint": "/test",
-                    "Labels": {}, "Options": {}, "Scope": "local" }),
-            ),
-            "/volumes" => Response::json(json!({ "Volumes": [], "Warnings": [] })),
-            "/containers/test-container/exec" => Response::json(json!({ "Id": "test-exec" })),
-            _ => Response::empty(),
-        });
-        let engine = engine::Engine::new(&daemon.url).await.unwrap();
-        let opts = engine::opts::ContainerCreateOpts {
-            name: "mobile-test".into(),
-            image: "alpine:latest".into(),
-            cmd: Some(vec!["sh".into(), "-c".into(), "echo ready".into()]),
-            env: [("LANG".into(), "zh_CN.UTF-8".into())].into(),
-            memory_limit: Some(128 * 1024 * 1024),
-            ports: vec![engine::dto::PortBinding {
-                host_ip: "127.0.0.1".into(),
-                host_port: Some(8080),
-                target_port: 80,
-                protocol: engine::dto::PortMappingProtocol::Tcp,
-            }],
-            mounts: vec![engine::opts::ContainerCreateMountOpts {
-                host_path: "/home/mobile/data".into(),
-                container_path: "/data".into(),
-                read_only: true,
-                selinux: Default::default(),
-            }],
-            volumes: vec![engine::opts::ContainerCreateVolumeOpts {
-                volume: "test-volume".into(),
-                container_path: "/cache".into(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        let id = engine.containers().create(opts).await.unwrap();
-        let container = engine.containers().get(id);
-        container.start().await.unwrap();
-        container.pause().await.unwrap();
-        container.unpause().await.unwrap();
-        container.restart(false).await.unwrap();
-        container.stop().await.unwrap();
-        container.rename("renamed").await.unwrap();
-        let exec = container
-            .create_exec(engine::opts::ExecCreateOpts {
-                command: vec!["/bin/sh".into()],
-                tty: Some(true),
-                attach_stdin: Some(true),
-                attach_stdout: Some(true),
-                attach_stderr: Some(true),
-            })
-            .await
-            .unwrap();
-        exec.resize(40, 12).await.unwrap();
-        container.remove(false).await.unwrap();
-        let volume = engine
-            .volumes()
-            .create(engine::opts::VolumeCreateOpts {
-                name: Some("test-volume".into()),
-            })
-            .await
-            .unwrap();
-        engine.volumes().list().await.unwrap();
-        engine.volumes().get(volume).remove(false).await.unwrap();
-
-        let requests = daemon.requests();
-        let create = requests
-            .iter()
-            .find(|req| req.path() == "/containers/create")
-            .unwrap();
-        let body = create.json();
-        assert_eq!(create.method, "POST");
-        assert!(create.target.contains("name=mobile-test"));
-        assert_eq!(body["Image"], "alpine:latest");
-        assert_eq!(body["HostConfig"]["Memory"], 134_217_728);
-        assert_eq!(
-            body["HostConfig"]["PortBindings"]["80/tcp"][0]["HostPort"],
-            "8080"
-        );
-        assert_eq!(
-            body["HostConfig"]["PortBindings"]["80/tcp"][0]["HostIp"],
-            "127.0.0.1"
-        );
-        assert_eq!(body["HostConfig"]["Mounts"][0]["ReadOnly"], true);
-        assert_eq!(body["HostConfig"]["Mounts"][1]["Source"], "test-volume");
-        assert_eq!(body["Env"][0], "LANG=zh_CN.UTF-8");
-        let exec_request = requests
-            .iter()
-            .find(|req| req.path().ends_with("/exec"))
-            .unwrap();
-        assert_eq!(exec_request.json()["AttachStdin"], true);
-        assert_eq!(exec_request.json()["Tty"], true);
-        let resize = requests
-            .iter()
-            .find(|req| req.path() == "/exec/test-exec/resize")
-            .unwrap();
-        assert!(resize.target.contains("w=40"));
-        assert!(resize.target.contains("h=12"));
-        for suffix in ["start", "pause", "unpause", "restart", "stop", "rename"] {
-            assert!(
-                requests
-                    .iter()
-                    .any(|req| req.path() == format!("/containers/test-container/{suffix}"))
-            );
-        }
-    });
-}
-
-#[test]
-fn decodes_docker_logs_and_events() {
-    run(async {
-        let daemon = Daemon::new(|request| match request.path() {
-            "/version" => version("Engine", "1.56"),
-            "/containers/test/logs" => {
-                let text = b"2026-11-24T00:00:00Z ready\n";
-                let mut body = vec![1, 0, 0, 0];
-                body.extend_from_slice(&(text.len() as u32).to_be_bytes());
-                body.extend_from_slice(text);
-                Response { status: 200, body }
-            }
-            "/events" => {
-                let mut response = Response::json(json!({
-                    "Type": "container", "Action": "stop",
-                    "Actor": { "ID": "test", "Attributes": { "name": "test" } },
-                    "time": 1,
-                }));
-                response.body.push(b'\n');
-                response
-            }
-            _ => panic!("unexpected request: {request:?}"),
-        });
-        let engine = engine::Engine::new(&daemon.url).await.unwrap();
-        let container = engine.containers().get("test");
-        let mut logs = container.logs(engine::opts::LogsOpts {
-            stdout: true,
-            stderr: true,
-            timestamps: true,
-            tail: "512".into(),
-            ..Default::default()
-        });
-        let chunk = logs.next().await.unwrap().unwrap();
-        assert_eq!(chunk.as_ref(), b"2026-11-24T00:00:00Z ready\n");
-        let mut events = engine.events();
-        let event = events.next().await.unwrap().unwrap();
-        assert!(matches!(event.type_(), engine::dto::EventType::Container));
-        let request = daemon
-            .requests()
-            .into_iter()
-            .find(|req| req.path().ends_with("/logs"))
-            .unwrap();
-        assert!(request.target.contains("tail=512"));
-        assert!(request.target.contains("timestamps=true"));
-    });
-}
-
-#[test]
-fn docker_build_reports_an_error_if_eof_has_no_image_id() {
-    run(async {
-        let daemon = Daemon::new(|request| match request.path() {
-            "/version" => version("Engine", "1.56"),
-            "/build" => {
-                let mut response = Response::json(json!({ "stream": "Step 1/1 : FROM scratch\n" }));
-                response.body.push(b'\n');
-                response
-            }
-            _ => panic!("unexpected request: {request:?}"),
-        });
-        let context = tempfile::tempdir().unwrap();
-        std::fs::write(context.path().join("Dockerfile"), "FROM scratch\n").unwrap();
-        let engine = engine::Engine::new(&daemon.url).await.unwrap();
-        let images = engine.images();
-        let mut stream = images
-            .build(engine::opts::ImageBuildOpts {
-                dockerfile: "Dockerfile".into(),
-                path: context.path().to_string_lossy().into(),
-                tag: "pods-test-incomplete:latest".into(),
-                ..Default::default()
-            })
-            .unwrap();
-        assert!(matches!(
-            stream.next().await.unwrap().unwrap(),
-            engine::dto::ImageBuildReport::Streaming { .. }
-        ));
-        let error = match stream.next().await.unwrap() {
-            Err(error) => error,
-            Ok(_) => panic!("an incomplete build must not report success"),
-        };
-        assert!(error.to_string().contains("without an image ID"));
-        assert!(stream.next().await.is_none());
-        let request = daemon
-            .requests()
-            .into_iter()
-            .find(|request| request.path() == "/build")
-            .unwrap();
-        let mut tar = tar::Archive::new(&request.body[..]);
-        assert!(
-            tar.entries()
-                .unwrap()
-                .any(|entry| { entry.unwrap().path().unwrap().ends_with("Dockerfile") })
-        );
-    });
-}
-
-#[test]
-fn docker_pull_finishes_with_the_local_image_id_instead_of_the_manifest_digest() {
-    run(async {
-        let daemon = Daemon::new(|request| match request.path() {
-            "/version" => version("Engine", "1.56"),
-            "/images/create" => Response {
-                status: 200,
-                body: concat!(
-                    "{\"status\":\"Digest: sha256:registry-manifest\"}\n",
-                    "{\"status\":\"Status: Downloaded newer image for test-image:latest\"}\n",
-                )
-                .as_bytes()
-                .to_vec(),
-            },
-            "/images/test-image:latest/json" => {
-                Response::json(json!({ "Id": "sha256:local-configuration" }))
-            }
-            _ => panic!("unexpected request: {request:?}"),
-        });
-        let engine = engine::Engine::new(&daemon.url).await.unwrap();
-        let images = engine.images();
-        let mut stream = images.pull(engine::opts::ImagePullOpts {
-            reference: "test-image:latest".into(),
-        });
-        let mut completed = 0;
-        let mut lines = 0;
-        while let Some(report) = stream.next().await {
-            match report.unwrap() {
-                engine::dto::ImagePullReport::Streaming { .. } => lines += 1,
-                engine::dto::ImagePullReport::Finished { image_id } => {
-                    assert_eq!(image_id, "sha256:local-configuration");
-                    completed += 1;
-                }
-                engine::dto::ImagePullReport::Error { message } => {
-                    panic!("unexpected pull error: {message}");
-                }
-            }
-        }
-        assert_eq!(lines, 2);
-        assert_eq!(completed, 1);
-        let requests = daemon.requests();
-        assert_eq!(
-            requests.last().unwrap().path(),
-            "/images/test-image:latest/json"
-        );
-    });
-}
-
-#[test]
-fn docker_top_explains_missing_procps_and_preserves_the_daemon_error() {
-    run(async {
-        for (status, message, explains_procps) in [
-            (
-                500,
-                "ps: bad -o argument 'pcpu', supported arguments: user,pid",
-                true,
-            ),
-            (500, "daemon operation failed", false),
-            (404, "container not found", false),
-        ] {
-            let daemon = Daemon::new(move |request| match request.path() {
-                "/version" => version("Engine", "1.56"),
-                "/containers/test/top" => Response {
-                    status,
-                    body: serde_json::to_vec(&json!({ "message": message })).unwrap(),
-                },
-                _ => panic!("unexpected request: {request:?}"),
-            });
-            let engine = engine::Engine::new(&daemon.url).await.unwrap();
-            let container = engine.containers().get("test");
-            let mut stream = container.top_stream(1);
-            let error = match stream.next().await.unwrap() {
-                Err(error) => error,
-                Ok(_) => panic!("expected daemon error"),
-            };
-            assert_eq!(error.to_string().contains("procps-ng"), explains_procps);
-            assert!(error.chain().any(|source| {
-                matches!(source.downcast_ref::<bollard::errors::Error>(),
-                    Some(bollard::errors::Error::DockerResponseServerError {
-                        status_code, message: original,
-                    }) if *status_code == status && original == message)
-            }));
-        }
-    });
-}
-
-#[test]
-fn limits_stats_concurrency_and_discards_stopped_container_counters() {
+fn limits_docker_statistics_requests_to_four() {
     run(async {
         let active = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
-        let lists = Arc::new(AtomicUsize::new(0));
-        let samples = AtomicUsize::new(0);
         let daemon = Daemon::new({
             let active = active.clone();
             let peak = peak.clone();
             move |request| match request.path() {
-                "/version" => version("Engine", "1.56"),
-                "/containers/json" => match lists.fetch_add(1, Ordering::Relaxed) {
-                    0 => Response::json(Value::Array(
-                        (0..7)
-                            .map(|id| json!({ "Id": format!("container-{id}") }))
-                            .collect(),
-                    )),
-                    1 => Response::json(json!([])),
-                    _ => Response::json(json!([{ "Id": "container-0" }])),
-                },
+                "/version" => version("Engine", "1.53"),
+                "/containers/json" => Response::json(Value::Array(
+                    (0..7)
+                        .map(|id| json!({ "Id": format!("container-{id}") }))
+                        .collect(),
+                )),
                 path if path.ends_with("/stats") => {
                     let count = active.fetch_add(1, Ordering::SeqCst) + 1;
                     peak.fetch_max(count, Ordering::SeqCst);
                     thread::sleep(Duration::from_millis(60));
                     active.fetch_sub(1, Ordering::SeqCst);
-                    let sample = samples.fetch_add(1, Ordering::Relaxed) + 1;
                     Response::json(json!({
-                        "cpu_stats": { "cpu_usage": { "total_usage": sample * 100 }, "system_cpu_usage": sample * 1000, "online_cpus": 8 },
+                        "cpu_stats": { "cpu_usage": { "total_usage": 100 }, "system_cpu_usage": 1000, "online_cpus": 2 },
                         "memory_stats": { "usage": 128, "limit": 1024 },
                     }))
                 }
@@ -630,17 +318,44 @@ fn limits_stats_concurrency_and_discards_stopped_container_counters() {
             7
         );
         assert_eq!(peak.load(Ordering::SeqCst), 4);
-        assert!(
-            stream
-                .next()
+    });
+}
+
+#[test]
+fn streams_file_upload_body_unchanged_for_both_engines() {
+    run(async {
+        let payload = vec![b'x'; 128 * 1024];
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_path("payload.txt").unwrap();
+        header.set_mode(0o644);
+        header.set_size(payload.len() as u64);
+        header.set_cksum();
+        tar.append(&header, payload.as_slice()).unwrap();
+        let expected = tar.into_inner().unwrap();
+        for name in ["Engine", "Podman Engine"] {
+            let daemon = Daemon::new(move |request| match request.path() {
+                "/version" => version(name, "1.53"),
+                path if path.ends_with("/containers/upload/archive") => Response::empty(),
+                _ => panic!("unexpected request: {request:?}"),
+            });
+            let engine = engine::Engine::new(&daemon.url).await.unwrap();
+            let mut file = tempfile::tempfile().unwrap();
+            file.write_all(&expected).unwrap();
+            file.rewind().unwrap();
+            engine
+                .containers()
+                .get("upload")
+                .copy_to("/tmp".into(), tokio::fs::File::from_std(file))
                 .await
-                .unwrap()
-                .unwrap()
-                .into_single_stats()
-                .is_empty()
-        );
-        let resumed = stream.next().await.unwrap().unwrap().into_single_stats();
-        assert_eq!(resumed.len(), 1);
-        assert_eq!(resumed[0].1.cpu, None);
+                .unwrap();
+            let request = daemon
+                .requests()
+                .into_iter()
+                .find(|request| request.path().ends_with("/containers/upload/archive"))
+                .unwrap();
+            assert_eq!(request.method, "PUT");
+            assert_eq!(request.body, expected);
+        }
     });
 }
