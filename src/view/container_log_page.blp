@@ -160,6 +160,7 @@ template $PdsContainerLogPage: Adw.NavigationPage {
                 buffer: $GtkSourceBuffer source_buffer {
                   cursor-moved => $on_source_buffer_cursor_moved() swapped;
                   highlight-matching-brackets: "False";
+                  enable-undo: false;
                 };
 
                 top-margin: "12";

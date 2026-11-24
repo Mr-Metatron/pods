@@ -3396,7 +3396,7 @@ msgstr "区分大小写"
 
 #: src/widget/text_search_entry.blp:54 src/widget/text_search_entry.blp:58
 msgid "Whole Word"
-msgstr ""
+msgstr "全词匹配"
 
 #: src/widget/zoom_control.blp:20
 msgid "Zoom Out"
@@ -3739,3 +3739,71 @@ msgstr ""
 
 #~ msgid "Use the light or dark variant of the GTK theme"
 #~ msgstr "使用 GTK 主题的浅色或深色版本"
+
+
+msgid "Search Options"
+msgstr "搜索选项"
+
+msgid "Docker Socket Access"
+msgstr "Docker Socket 访问权限"
+
+msgid "Start Docker before connecting. On a systemd system, an administrator can enable the service with:"
+msgstr "连接前请启动 Docker。使用 systemd 的系统可由管理员执行以下命令启用服务："
+
+msgid "On Alpine systems using OpenRC, an administrator can start Docker with rc-service docker start. For rootless Docker, start the user's Docker service; the socket is normally $XDG_RUNTIME_DIR/docker.sock."
+msgstr "在使用 OpenRC 的 Alpine 系统上，管理员可运行 rc-service docker start 启动 Docker。使用无根 Docker 时，请启动当前用户的 Docker 服务；Socket 通常位于 $XDG_RUNTIME_DIR/docker.sock。"
+
+msgid "Run Pods as your regular user. Access to a system Docker socket is normally granted through the docker group. This grants root-level control of the device. Log out and back in after a group change; keep the socket restricted to authorized users."
+msgstr "请以普通用户运行 Pods。通常通过加入 docker 组获得系统 Docker Socket 的访问权限，这会授予对设备的 root 级控制权限。修改用户组后请注销并重新登录，Socket 应仅允许获授权的用户访问。"
+
+msgid "Access was denied. Ask an administrator to grant your user access to this socket. For a system Docker service, membership in the docker group grants root-level control of the device. Log out and back in after changing group membership. Keep Pods running as your regular user."
+msgstr "访问被拒绝。请管理员授予当前用户访问此 Socket 的权限。对于系统 Docker 服务，加入 docker 组会获得对设备的 root 级控制权限。修改用户组后请注销并重新登录，继续以普通用户运行 Pods。"
+
+msgid "The socket was not found. Start the container engine service or choose its actual socket path. Rootless Docker normally uses $XDG_RUNTIME_DIR/docker.sock."
+msgstr "未找到 Socket。请启动容器引擎服务，或选择实际的 Socket 路径。无根 Docker 通常使用 $XDG_RUNTIME_DIR/docker.sock。"
+
+msgid "The socket exists, but the service is not accepting connections. Start or restart the container engine service."
+msgstr "Socket 已存在，但服务未接受连接。请启动或重启容器引擎服务。"
+
+msgid "The selected path is not a Unix socket. Choose the socket created by the container engine."
+msgstr "所选路径不是 Unix Socket。请选择容器引擎创建的 Socket。"
+
+msgid "Could not connect to the Unix socket “{}”."
+msgstr "无法连接到 Unix Socket“{}”。"
+
+msgid "Esc"
+msgstr "Esc"
+
+msgid "Escape"
+msgstr "退出键"
+
+msgid "Tab"
+msgstr "Tab"
+
+msgid "Tab (Completion)"
+msgstr "Tab（补全）"
+
+msgid "Ctrl+C"
+msgstr "Ctrl+C"
+
+msgid "Interrupt Command"
+msgstr "中断命令"
+
+msgid "Previous Command"
+msgstr "上一条命令"
+
+msgid "Next Command"
+msgstr "下一条命令"
+
+msgid "Paste"
+msgstr "粘贴"
+
+msgid "Log history is limited to reduce memory use. Save logs to view the complete output."
+msgstr "为减少内存占用，日志历史记录已受限。保存日志可查看完整输出。"
+
+msgid "Save Logs"
+msgstr "保存日志"
+
+#: src/engine/api/container.rs
+msgid "Install procps-ng on the Docker host to view container processes. Its ps command provides the required CPU percentage field."
+msgstr "请在运行 Docker 引擎的主机上安装 procps-ng，以查看容器进程。它提供的 ps 命令支持所需的 CPU 使用率字段。"

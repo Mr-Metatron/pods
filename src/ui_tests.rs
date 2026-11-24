@@ -4,6 +4,7 @@
 //! directory and the installed schema directory. These checks simulate viewport sizes;
 //! they do not exercise a phone's compositor, input method or Docker daemon.
 
+use std::os::unix::net::UnixListener;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -56,9 +57,24 @@ fn find_id(widget: &impl IsA<gtk::Widget>, id: &str) -> gtk::Widget {
 
 fn resize(window: &impl IsA<gtk::Window>, width: i32, height: i32) {
     let window = window.as_ref();
-    window.set_default_size(width, height);
-    window.present();
-    settle();
+    let mut requested = (width, height);
+    for _ in 0..4 {
+        window.set_default_size(requested.0, requested.1);
+        window.present();
+        settle();
+        let allocated = (window.width(), window.height());
+        if allocated == (width, height) {
+            return;
+        }
+        eprintln!(
+            "viewport {width}x{height}: requested {requested:?}, allocated {allocated:?}, surface {:?}",
+            window.surface().map(|surface| (surface.width(), surface.height()))
+        );
+        // GTK's default size can include the window's client decorations. Calibrate
+        // the outer request so assertions below measure the actual content viewport.
+        requested.0 = (requested.0 + width - allocated.0).max(1);
+        requested.1 = (requested.1 + height - allocated.1).max(1);
+    }
     assert_eq!((window.width(), window.height()), (width, height));
 }
 
@@ -105,6 +121,9 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
     sourceview5::init();
     gettextrs::bindtextdomain(config::GETTEXT_PACKAGE, config::LOCALEDIR).unwrap();
     gettextrs::textdomain(config::GETTEXT_PACKAGE).unwrap();
+    if let Ok(expected) = std::env::var("PODS_UI_TEST_REGEX_LABEL") {
+        assert_eq!(gettextrs::gettext("Regular Expression"), expected);
+    }
 
     let directory = std::env::var_os("PODS_UI_TEST_OUTPUT")
         .map(PathBuf::from)
@@ -144,15 +163,28 @@ fn mobile_widgets_fit_and_keep_controls_reachable() {
     }
     main_window.set_visible(false);
 
+    let log_page: view::ContainerLogPage = glib::Object::new();
+    let log_view: sourceview5::View = find(&log_page);
+    assert!(
+        !log_view.buffer().enables_undo(),
+        "streamed logs must not retain evicted text in an undo history"
+    );
+    log_page.check_log_window_for_test();
+
     let window = adw::Window::builder()
         .application(&app)
         .decorated(false)
         .build();
     let manager = model::ConnectionManager::default();
+    let transport_directory = tempfile::tempdir_in(&directory).unwrap();
+    let socket_path = transport_directory.path().join("engine.sock");
+    // Bollard validates the local socket before creating a client. Keep a real
+    // listener alive for the fixture without running or mutating a Docker daemon.
+    let _listener = UnixListener::bind(&socket_path).unwrap();
     let connection = model::Connection::new(
         "ui-test",
         "本机 Docker — a deliberately long connection name",
-        "unix:///tmp/pods-ui-test-no-daemon.sock",
+        &format!("unix://{}", socket_path.display()),
         None,
         &manager,
     );

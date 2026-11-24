@@ -10,7 +10,7 @@ meson setup _build --prefix=/usr -Dcargo-offline=true
 cargo test --locked --offline --target-dir _build/src --test engine_contract
 ```
 
-The contract suite starts temporary Unix HTTP endpoints. It checks engine identification, Docker API negotiation, Docker/Podman capabilities, container creation options, lifecycle requests, volume requests, exec creation and resizing, log/event decoding, the statistics concurrency limit and disposal of stale CPU counters. The tests call the production adapter and record the SDK's actual HTTP targets with `--nocapture`.
+The contract suite starts temporary Unix HTTP endpoints. It checks engine identification, Docker client API negotiation state, Docker/Podman capabilities, container creation options including an explicit loopback address, lifecycle requests, volume requests, exec creation and resizing, log/event decoding, the statistics concurrency limit and disposal of stale CPU counters. Image fixtures also verify an error when a build ends without an image ID and that a pull returns the local image config ID, which differs from the registry manifest digest. The tests call the production adapter and record the SDK's actual HTTP targets with `--nocapture`. The locked Bollard 0.21.1 emitted unversioned paths in the Unix fixture while its client version state changed successfully; compatibility with older daemon API versions needs real-daemon testing.
 
 The socket unit tests also check rootless discovery and the distinction between an absent path, a regular file, an active socket and a stale socket. A restricted execution environment that denies `socket(AF_UNIX)` will fail these tests before the HTTP fixture can start. Record that environment failure separately from a protocol test result.
 
@@ -24,6 +24,8 @@ cargo test --locked --offline --target-dir _build/src --test engine_contract \
 This creates a private temporary socket, removes its permission bits, attempts to connect through the production helper, verifies `PermissionDenied`, and restores permissions before cleanup. It does not change a Docker socket or user groups.
 
 ## Real Docker Engine acceptance
+
+On an Alpine Docker host, install `procps-ng` for the process list: Docker executes the host `ps`, and BusyBox `ps` lacks the requested CPU percentage field. The native Pods package includes this dependency.
 
 Choose the daemon explicitly. The test never falls back to the default Docker socket. The example keeps global prune disabled, creates uniquely named resources, and removes those resources after success, API failure or the overall timeout.
 
@@ -39,8 +41,8 @@ This test requires registry access to pull the selected image. It leaves that ba
 
 The test verifies:
 
-- Image pull, listing, inspect, JSON inspection and history.
-- Container creation with environment variables, a memory limit, a published port, a read-only bind mount and a named volume.
+- Image pull, completion with the local image ID, listing, inspect, JSON inspection and history.
+- Container creation with environment variables, a memory limit, a `127.0.0.1` port binding confirmed by inspection, a read-only bind mount and a named volume.
 - Running logs, container statistics and process listing.
 - An attached interactive exec, text input/output and terminal resize.
 - Streaming copy into a container and reading the copied archive back.

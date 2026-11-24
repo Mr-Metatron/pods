@@ -195,12 +195,23 @@ async fn exercise(
     let mut pull = images.pull(engine::opts::ImagePullOpts {
         reference: base_image.into(),
     });
+    let mut pulled_image_id = None;
     while let Some(report) = pull.next().await {
-        if let engine::dto::ImagePullReport::Error { message } = report? {
-            anyhow::bail!("image pull: {message}");
+        match report? {
+            engine::dto::ImagePullReport::Error { message } => {
+                anyhow::bail!("image pull: {message}");
+            }
+            engine::dto::ImagePullReport::Finished { image_id } => {
+                pulled_image_id = Some(image_id);
+            }
+            engine::dto::ImagePullReport::Streaming { .. } => {}
         }
     }
-    images.get(base_image).inspect().await?;
+    let inspection = images.get(base_image).inspect().await?;
+    ensure!(
+        pulled_image_id.as_deref() == Some(inspection.summary.id.as_str()),
+        "pull did not complete with the local image ID"
+    );
     images.get(base_image).history().await?;
     images.get(base_image).json().await?;
     images.list().await?;
@@ -230,7 +241,7 @@ async fn exercise(
         labels: [("com.github.marhkb.Pods.test".into(), prefix.into())].into(),
         memory_limit: Some(128 * 1024 * 1024),
         ports: vec![engine::dto::PortBinding {
-            host_ip: String::new(), host_port: None, target_port: 8080,
+            host_ip: "127.0.0.1".into(), host_port: None, target_port: 8080,
             protocol: engine::dto::PortMappingProtocol::Tcp,
         }],
         mounts: vec![engine::opts::ContainerCreateMountOpts {
@@ -255,6 +266,11 @@ async fn exercise(
     ensure!(
         inspection["NetworkSettings"]["Ports"]["8080/tcp"].is_array(),
         "port was not published"
+    );
+
+    ensure!(
+        inspection["NetworkSettings"]["Ports"]["8080/tcp"][0]["HostIp"] == "127.0.0.1",
+        "explicit loopback address was not applied"
     );
 
     let mut logs = container.logs(engine::opts::LogsOpts {

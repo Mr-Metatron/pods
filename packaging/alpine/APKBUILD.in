@@ -6,7 +6,7 @@ pkgdesc="Manage Podman and Docker containers"
 url="https://github.com/marhkb/pods"
 arch="aarch64 x86_64"
 license="GPL-3.0-or-later"
-depends="adwaita-icon-theme ca-certificates dconf gsettings-desktop-schemas openssh-client-default"
+depends="adwaita-icon-theme ca-certificates dconf gsettings-desktop-schemas openssh-client-default procps-ng"
 makedepends="
 	blueprint-compiler
 	cargo>=1.92
@@ -62,6 +62,11 @@ check() {
 
 package() {
 	DESTDIR="$pkgdir" meson install --no-rebuild -C output
+	# Plasma commonly uses zh_CN, while upstream names its catalog zh_Hans.
+	# Alias only this application's catalog, preserving shared locale directories.
+	mkdir -p "$pkgdir/usr/share/locale/zh_CN/LC_MESSAGES"
+	ln -s ../../zh_Hans/LC_MESSAGES/pods.mo \
+		"$pkgdir/usr/share/locale/zh_CN/LC_MESSAGES/pods.mo"
 }
 
 sha512sums="

@@ -126,7 +126,9 @@ impl ContainerCopyToAction {
         .defer(clone!(
             #[weak(rename_to = obj)]
             self,
-            move |result| if let Ok(result) = result {
+            move |result| if obj.state() != model::ActionState::Cancelled
+                && let Ok(result) = result
+            {
                 match result {
                     Ok(ar) => {
                         obj.set_ongoing_state(ContainerCopyToActionOngoingState::UnwrapTar);
@@ -143,7 +145,9 @@ impl ContainerCopyToAction {
                         .defer(clone!(
                             #[weak]
                             obj,
-                            move |result| if let Ok(result) = result {
+                            move |result| if obj.state() != model::ActionState::Cancelled
+                                && let Ok(result) = result
+                            {
                                 match result {
                                     Ok(buf) => {
                                         obj.set_ongoing_state(
@@ -171,7 +175,10 @@ impl ContainerCopyToAction {
                                         .defer(clone!(
                                             #[weak]
                                             obj,
-                                            move |result| if let Ok(result) = result {
+                                            move |result| if obj.state()
+                                                != model::ActionState::Cancelled
+                                                && let Ok(result) = result
+                                            {
                                                 match result {
                                                     Ok(()) => {
                                                         obj.set_state(model::ActionState::Finished)

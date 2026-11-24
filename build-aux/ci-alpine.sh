@@ -53,8 +53,10 @@ check_installed() {
     contract_binary=$(find_test_binary engine_contract \
         engine::socket::tests::denied_socket_retains_permission_denied_errno)
     live_binary=$(find_test_binary engine_live docker_engine_end_to_end)
+    cp "$ui_binary" /out/tests/pods-ui
+    cp "$contract_binary" /out/tests/engine_contract
     cp "$live_binary" /out/tests/engine_live
-    sha256sum /out/tests/engine_live > /out/tests/SHA256SUMS
+    (cd /out/tests && sha256sum pods-ui engine_contract engine_live > SHA256SUMS)
 
     id > /out/logs/test-user.txt
     run_logged /out/logs/engine-contract.txt \
@@ -69,12 +71,20 @@ check_installed() {
     mkdir -p "$XDG_RUNTIME_DIR"
     chmod 700 "$XDG_RUNTIME_DIR"
 
-    for language in en zh_Hans; do
-        export LANGUAGE=$language
+    unset LANGUAGE LC_ALL LC_MESSAGES
+    for language in en zh_CN; do
         case "$language" in
             en) export LANG=en_US.UTF-8 ;;
-            zh_Hans) export LANG=zh_CN.UTF-8 ;;
+            zh_CN) export LANG=zh_CN.UTF-8 ;;
         esac
+        translation=$(TEXTDOMAINDIR=/usr/share/locale TEXTDOMAIN=pods gettext 'Regular Expression')
+        printf 'LANG=%s, LANGUAGE unset: %s\n' "$LANG" "$translation" \
+            > "/out/logs/locale-$language.txt"
+        case "$language" in
+            en) [ "$translation" = 'Regular Expression' ] ;;
+            zh_CN) [ "$translation" = '正则表达式' ] ;;
+        esac
+        export PODS_UI_TEST_REGEX_LABEL="$translation"
         export PODS_UI_TEST_OUTPUT="/out/screenshots/$language"
         export XDG_CONFIG_HOME="/home/builder/config-$language"
         mkdir -p "$PODS_UI_TEST_OUTPUT" "$XDG_CONFIG_HOME"

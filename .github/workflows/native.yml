@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   package:
     name: Alpine 3.24 (${{ matrix.arch }})

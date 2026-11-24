@@ -64,6 +64,8 @@ set Cargo to offline mode; a missing dependency or a lockfile change fails the
 build. The generated APKBUILD shares one Cargo cache across those phases.
 Packaging uses Meson to install the binary, resources, schemas, desktop file,
 icons and metainfo. Translations are in the `pods-lang` subpackage.
+It includes a `zh_CN` alias for the upstream `zh_Hans` catalog, so the usual
+Plasma Simplified Chinese locale works without setting `LANGUAGE` globally.
 
 The release source vendor script also preserves all locked platform dependencies,
 including musl, and leaves crate checksums intact. A vendored source tree can be
@@ -99,6 +101,11 @@ resources are exercised under Xvfb with an in-memory GSettings backend and the
 Cairo renderer. English and Simplified Chinese runs save screenshots for phone,
 landscape, reduced-height and desktop viewports in `screenshots/`; full test
 output is in `logs/`. Failed jobs retain their available evidence.
+The `tests/` directory contains the matching `pods-ui`, `engine_contract` and
+`engine_live` harnesses with a relative-path `SHA256SUMS` file. They can be run
+on an Alpine VM of the same architecture after installing the matching APKs,
+without a Rust toolchain; the GTK harness additionally needs a display and the
+environment described in `src/ui_tests.rs`.
 
 The x86_64 job also runs the already compiled Docker acceptance harness in a
 separate Alpine container. That short step has the runner daemon's explicitly
@@ -114,6 +121,11 @@ package includes the icon theme and desktop schemas used by the existing UI.
 It does not enable or install a container daemon, alter socket permissions, or
 change user groups. The `openssh-client-default` dependency preserves SSH remote
 connections; TLS uses the system CA certificates.
+
+Docker's process listing invokes `ps` on the daemon host. The package includes
+`procps-ng` so a local Alpine Docker daemon supports the process columns used by
+Pods, including CPU percentage. For a remote Docker connection, install procps
+on the daemon host as well; the client's copy does not provide the remote `ps`.
 
 The desktop session should provide a Secret Service for saved registry
 credentials and a file chooser portal. On Plasma, use the session's existing

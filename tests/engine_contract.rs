@@ -161,18 +161,64 @@ fn read_request(socket: &mut UnixStream) -> Option<Request> {
                 .then(|| value.trim().parse::<usize>().unwrap())
         })
         .unwrap_or(0);
-    while buf.len() < header_end + content_length {
+    let chunked = headers.lines().any(|line| {
+        line.split_once(':').is_some_and(|(name, value)| {
+            name.eq_ignore_ascii_case("transfer-encoding")
+                && value.trim().eq_ignore_ascii_case("chunked")
+        })
+    });
+    let body = if chunked {
+        let mut offset = header_end;
+        let mut body = Vec::new();
+        loop {
+            let line = read_line(socket, &mut buf, &mut offset);
+            let length = usize::from_str_radix(line.split(';').next().unwrap(), 16).unwrap();
+            if length == 0 {
+                while !read_line(socket, &mut buf, &mut offset).is_empty() {}
+                break;
+            }
+            assert!(
+                body.len() + length <= 16 * 1024 * 1024,
+                "oversized mock body"
+            );
+            read_to(socket, &mut buf, offset + length + 2);
+            body.extend_from_slice(&buf[offset..offset + length]);
+            offset += length;
+            assert_eq!(&buf[offset..offset + 2], b"\r\n");
+            offset += 2;
+        }
+        body
+    } else {
+        read_to(socket, &mut buf, header_end + content_length);
+        buf[header_end..header_end + content_length].to_vec()
+    };
+    let mut line = headers.lines().next().unwrap().split_whitespace();
+    Some(Request {
+        method: line.next().unwrap().to_owned(),
+        target: line.next().unwrap().to_owned(),
+        body,
+    })
+}
+
+fn read_to(socket: &mut UnixStream, buf: &mut Vec<u8>, length: usize) {
+    while buf.len() < length {
         let mut chunk = [0; 4096];
         let n = socket.read(&mut chunk).unwrap();
         assert_ne!(n, 0, "truncated request body");
         buf.extend_from_slice(&chunk[..n]);
     }
-    let mut line = headers.lines().next().unwrap().split_whitespace();
-    Some(Request {
-        method: line.next().unwrap().to_owned(),
-        target: line.next().unwrap().to_owned(),
-        body: buf[header_end..header_end + content_length].to_vec(),
-    })
+}
+
+fn read_line(socket: &mut UnixStream, buf: &mut Vec<u8>, offset: &mut usize) -> String {
+    loop {
+        if let Some(end) = buf[*offset..].windows(2).position(|bytes| bytes == b"\r\n") {
+            let line = String::from_utf8(buf[*offset..*offset + end].to_vec()).unwrap();
+            *offset += end + 2;
+            return line;
+        }
+        let length = buf.len() + 1;
+        read_to(socket, buf, length);
+    }
 }
 
 fn version(engine_name: &str, api: &str) -> Response {
@@ -248,7 +294,8 @@ fn docker_create_lifecycle_and_volume_requests_keep_user_options() {
                 Response::json(json!({ "Id": "test-container", "Warnings": [] }))
             }
             "/volumes/create" => Response::json(
-                json!({ "Name": "test-volume", "Driver": "local", "Mountpoint": "/test" }),
+                json!({ "Name": "test-volume", "Driver": "local", "Mountpoint": "/test",
+                    "Labels": {}, "Options": {}, "Scope": "local" }),
             ),
             "/volumes" => Response::json(json!({ "Volumes": [], "Warnings": [] })),
             "/containers/test-container/exec" => Response::json(json!({ "Id": "test-exec" })),
@@ -262,7 +309,7 @@ fn docker_create_lifecycle_and_volume_requests_keep_user_options() {
             env: [("LANG".into(), "zh_CN.UTF-8".into())].into(),
             memory_limit: Some(128 * 1024 * 1024),
             ports: vec![engine::dto::PortBinding {
-                host_ip: String::new(),
+                host_ip: "127.0.0.1".into(),
                 host_port: Some(8080),
                 target_port: 80,
                 protocol: engine::dto::PortMappingProtocol::Tcp,
@@ -323,6 +370,10 @@ fn docker_create_lifecycle_and_volume_requests_keep_user_options() {
         assert_eq!(
             body["HostConfig"]["PortBindings"]["80/tcp"][0]["HostPort"],
             "8080"
+        );
+        assert_eq!(
+            body["HostConfig"]["PortBindings"]["80/tcp"][0]["HostIp"],
+            "127.0.0.1"
         );
         assert_eq!(body["HostConfig"]["Mounts"][0]["ReadOnly"], true);
         assert_eq!(body["HostConfig"]["Mounts"][1]["Source"], "test-volume");
@@ -393,6 +444,140 @@ fn decodes_docker_logs_and_events() {
             .unwrap();
         assert!(request.target.contains("tail=512"));
         assert!(request.target.contains("timestamps=true"));
+    });
+}
+
+#[test]
+fn docker_build_reports_an_error_if_eof_has_no_image_id() {
+    run(async {
+        let daemon = Daemon::new(|request| match request.path() {
+            "/version" => version("Engine", "1.56"),
+            "/build" => {
+                let mut response = Response::json(json!({ "stream": "Step 1/1 : FROM scratch\n" }));
+                response.body.push(b'\n');
+                response
+            }
+            _ => panic!("unexpected request: {request:?}"),
+        });
+        let context = tempfile::tempdir().unwrap();
+        std::fs::write(context.path().join("Dockerfile"), "FROM scratch\n").unwrap();
+        let engine = engine::Engine::new(&daemon.url).await.unwrap();
+        let images = engine.images();
+        let mut stream = images
+            .build(engine::opts::ImageBuildOpts {
+                dockerfile: "Dockerfile".into(),
+                path: context.path().to_string_lossy().into(),
+                tag: "pods-test-incomplete:latest".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(matches!(
+            stream.next().await.unwrap().unwrap(),
+            engine::dto::ImageBuildReport::Streaming { .. }
+        ));
+        let error = match stream.next().await.unwrap() {
+            Err(error) => error,
+            Ok(_) => panic!("an incomplete build must not report success"),
+        };
+        assert!(error.to_string().contains("without an image ID"));
+        assert!(stream.next().await.is_none());
+        let request = daemon
+            .requests()
+            .into_iter()
+            .find(|request| request.path() == "/build")
+            .unwrap();
+        let mut tar = tar::Archive::new(&request.body[..]);
+        assert!(
+            tar.entries()
+                .unwrap()
+                .any(|entry| { entry.unwrap().path().unwrap().ends_with("Dockerfile") })
+        );
+    });
+}
+
+#[test]
+fn docker_pull_finishes_with_the_local_image_id_instead_of_the_manifest_digest() {
+    run(async {
+        let daemon = Daemon::new(|request| match request.path() {
+            "/version" => version("Engine", "1.56"),
+            "/images/create" => Response {
+                status: 200,
+                body: concat!(
+                    "{\"status\":\"Digest: sha256:registry-manifest\"}\n",
+                    "{\"status\":\"Status: Downloaded newer image for test-image:latest\"}\n",
+                )
+                .as_bytes()
+                .to_vec(),
+            },
+            "/images/test-image:latest/json" => {
+                Response::json(json!({ "Id": "sha256:local-configuration" }))
+            }
+            _ => panic!("unexpected request: {request:?}"),
+        });
+        let engine = engine::Engine::new(&daemon.url).await.unwrap();
+        let images = engine.images();
+        let mut stream = images.pull(engine::opts::ImagePullOpts {
+            reference: "test-image:latest".into(),
+        });
+        let mut completed = 0;
+        let mut lines = 0;
+        while let Some(report) = stream.next().await {
+            match report.unwrap() {
+                engine::dto::ImagePullReport::Streaming { .. } => lines += 1,
+                engine::dto::ImagePullReport::Finished { image_id } => {
+                    assert_eq!(image_id, "sha256:local-configuration");
+                    completed += 1;
+                }
+                engine::dto::ImagePullReport::Error { message } => {
+                    panic!("unexpected pull error: {message}");
+                }
+            }
+        }
+        assert_eq!(lines, 2);
+        assert_eq!(completed, 1);
+        let requests = daemon.requests();
+        assert_eq!(
+            requests.last().unwrap().path(),
+            "/images/test-image:latest/json"
+        );
+    });
+}
+
+#[test]
+fn docker_top_explains_missing_procps_and_preserves_the_daemon_error() {
+    run(async {
+        for (status, message, explains_procps) in [
+            (
+                500,
+                "ps: bad -o argument 'pcpu', supported arguments: user,pid",
+                true,
+            ),
+            (500, "daemon operation failed", false),
+            (404, "container not found", false),
+        ] {
+            let daemon = Daemon::new(move |request| match request.path() {
+                "/version" => version("Engine", "1.56"),
+                "/containers/test/top" => Response {
+                    status,
+                    body: serde_json::to_vec(&json!({ "message": message })).unwrap(),
+                },
+                _ => panic!("unexpected request: {request:?}"),
+            });
+            let engine = engine::Engine::new(&daemon.url).await.unwrap();
+            let container = engine.containers().get("test");
+            let mut stream = container.top_stream(1);
+            let error = match stream.next().await.unwrap() {
+                Err(error) => error,
+                Ok(_) => panic!("expected daemon error"),
+            };
+            assert_eq!(error.to_string().contains("procps-ng"), explains_procps);
+            assert!(error.chain().any(|source| {
+                matches!(source.downcast_ref::<bollard::errors::Error>(),
+                    Some(bollard::errors::Error::DockerResponseServerError {
+                        status_code, message: original,
+                    }) if *status_code == status && original == message)
+            }));
+        }
     });
 }
 
